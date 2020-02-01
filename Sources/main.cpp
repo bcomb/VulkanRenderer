@@ -17,6 +17,9 @@
 
 VkDebugUtilsMessengerEXT debugMessenger;
 
+
+VkSurfaceFormatKHR gSurfaceFormat;
+
 static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
 	VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
 	VkDebugUtilsMessageTypeFlagsEXT messageType,
@@ -136,8 +139,8 @@ VkSwapchainKHR createSwapchain(VkDevice pDevice, VkSurfaceKHR pSurface, uint32_t
 	VkSwapchainCreateInfoKHR lSwapchainInfo = { VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
 	lSwapchainInfo.surface = pSurface;
 	lSwapchainInfo.minImageCount = lSwapchainImageCount;		// double buffer
-	lSwapchainInfo.imageFormat = VK_FORMAT_B8G8R8A8_UNORM;		// some devices only support BGRA
-	lSwapchainInfo.imageColorSpace = VK_COLORSPACE_SRGB_NONLINEAR_KHR;
+	lSwapchainInfo.imageFormat = gSurfaceFormat.format;		// some devices only support BGRA
+	lSwapchainInfo.imageColorSpace = gSurfaceFormat.colorSpace;
 	lSwapchainInfo.imageExtent.width = pWidth;
 	lSwapchainInfo.imageExtent.height = pHeight;
 	lSwapchainInfo.imageArrayLayers = 1;
@@ -227,6 +230,93 @@ VkCommandPool createCommandPool(VkDevice pDevice, uint32_t pFamilyIndex)
 	return lCommandPool;
 }
 
+VkImageView createImageView(VkDevice pDevice, VkImage pImage )
+{
+	VkImageViewCreateInfo lImageViewCreateInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+	//VkImageViewCreateFlags     flags;
+	lImageViewCreateInfo.image = pImage;
+	lImageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+	lImageViewCreateInfo.format = gSurfaceFormat.format;
+	lImageViewCreateInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+	lImageViewCreateInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+	lImageViewCreateInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+	lImageViewCreateInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+	lImageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	lImageViewCreateInfo.subresourceRange.baseMipLevel = 0;
+	lImageViewCreateInfo.subresourceRange.levelCount = 1;
+	lImageViewCreateInfo.subresourceRange.baseArrayLayer = 0;
+	lImageViewCreateInfo.subresourceRange.layerCount = 1;
+	VkImageView imageView;
+	VK_CHECK(vkCreateImageView(pDevice, &lImageViewCreateInfo, nullptr, &imageView));
+	return imageView;
+}
+
+VkRenderPass createRenderPass(VkDevice pDevice)
+{
+	VkAttachmentDescription attachmentDesc[1] = {};
+	attachmentDesc[0].flags;
+	attachmentDesc[0].format = gSurfaceFormat.format; // swapChainImageFormat
+	attachmentDesc[0].samples = VK_SAMPLE_COUNT_1_BIT; // no msaa
+	attachmentDesc[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	attachmentDesc[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	attachmentDesc[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	attachmentDesc[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+
+	//Using VK_IMAGE_LAYOUT_UNDEFINED for initialLayout means that we don't care
+	// what previous layout the image was in. The caveat of this special value is 
+	// that the contents of the image are not guaranteed to be preserved,
+	// but that doesn't matter since we're going to clear it anyway
+	attachmentDesc[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	attachmentDesc[0].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+	VkAttachmentReference colorAttachmentRef = {};
+	colorAttachmentRef.attachment = 0;	// Index in VkRenderPassCreateInfo::pAttachments
+	colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+	VkSubpassDescription subpassDesc = {};
+	//VkSubpassDescriptionFlags       flags;
+	subpassDesc.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+	//subpassDesc.inputAttachmentCount = 1;	// Attachments that are read from a shader
+	//subpassDesc.pInputAttachments = &colorAttachmentRef;
+	subpassDesc.colorAttachmentCount = 1;
+	subpassDesc.pColorAttachments = &colorAttachmentRef;
+	//subpassDesc.pResolveAttachments;	// Attachments used for multisampling color attachments
+	//subpassDesc.pDepthStencilAttachment;
+	//uint32_t                        preserveAttachmentCount;	// Attachments that are not used by this subpass, but for which the data must be preserved
+	//const uint32_t* pPreserveAttachments;
+
+	VkRenderPassCreateInfo createInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
+	//VkRenderPassCreateFlags           flags;
+	createInfo.attachmentCount = 1;
+	createInfo.pAttachments = attachmentDesc;
+	createInfo.subpassCount = 1;
+	createInfo.pSubpasses = &subpassDesc;
+	//uint32_t                          dependencyCount;
+	//const VkSubpassDependency* pDependencies;
+
+	VkRenderPass renderPass;
+	VK_CHECK(vkCreateRenderPass(pDevice, &createInfo, nullptr, &renderPass));
+
+	return renderPass;
+}
+
+VkFramebuffer createFramebuffer(VkDevice pDevice, VkRenderPass pRenderPass, VkImageView* imageViews, uint32_t imageViewCount, uint32_t pWidth, uint32_t pHeight)
+{
+	VkFramebufferCreateInfo createInfo = { VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
+	//VkFramebufferCreateFlags    flags;
+	createInfo.renderPass = pRenderPass;
+	createInfo.attachmentCount = imageViewCount;
+	createInfo.pAttachments = imageViews;
+	createInfo.width = pWidth;
+	createInfo.height = pHeight;
+	createInfo.layers = 1;
+
+	VkFramebuffer framebuffer;
+	VK_CHECK(vkCreateFramebuffer(pDevice, &createInfo, nullptr, &framebuffer));
+
+	return framebuffer;
+}
+
 // Entry point
 int main(int argc, char* argv[])
 {
@@ -271,8 +361,9 @@ int main(int argc, char* argv[])
 	VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(lPhysicalDevice, lSurface, &lPhysicalDeviceSurfaceCapabilities));
 	uint32_t lFormatCount;
 	VK_CHECK(vkGetPhysicalDeviceSurfaceFormatsKHR(lPhysicalDevice, lSurface, &lFormatCount, nullptr));
-	VkSurfaceFormatKHR* lFormats = (VkSurfaceFormatKHR*)_alloca(lFormatCount * sizeof(VkSurfaceFormatKHR));
+	VkSurfaceFormatKHR* lFormats = (VkSurfaceFormatKHR*)_alloca(lFormatCount * sizeof(VkSurfaceFormatKHR));	
 	VK_CHECK(vkGetPhysicalDeviceSurfaceFormatsKHR(lPhysicalDevice, lSurface, &lFormatCount, lFormats));
+	gSurfaceFormat = lFormats[0]; // todo : clean that
 	uint32_t lPresentModeCount;
 	VK_CHECK(vkGetPhysicalDeviceSurfacePresentModesKHR(lPhysicalDevice, lSurface, &lPresentModeCount, nullptr));
 	VkPresentModeKHR* lPresentModes = (VkPresentModeKHR*)_alloca(lPresentModeCount * sizeof(VkPresentModeKHR));
@@ -280,12 +371,37 @@ int main(int argc, char* argv[])
 
 	// Create the swap chain
 	int lWindowWidth = 0, lWindowHeight = 0;
-	glfwGetWindowSize(lWindow, &lWindowWidth, &lWindowHeight);
+	glfwGetWindowSize(lWindow, &lWindowWidth, &lWindowHeight); // TODO: shortcut, window size and swapchain image size may be different !!!
 	uint32_t lSwapchainImageCount = 2;
 	VkSwapchainKHR lSwapChain = createSwapchain(lDevice, lSurface, lQueueFamilyIndex, lWindowWidth, lWindowHeight, lSwapchainImageCount);
 
 	VkImage lSwapChainImages[16] = {};
+	VK_CHECK(vkGetSwapchainImagesKHR(lDevice, lSwapChain, &lSwapchainImageCount, nullptr));
 	VK_CHECK(vkGetSwapchainImagesKHR(lDevice, lSwapChain, &lSwapchainImageCount, lSwapChainImages));
+
+	VkImageView lSwapChainImageViews[16] = {};
+	for (uint32_t i = 0; i < lSwapchainImageCount; ++i)
+	{
+		lSwapChainImageViews[i] = createImageView(lDevice, lSwapChainImages[i]);
+	}
+
+	VkRenderPass renderPass = createRenderPass(lDevice);
+
+	VkFramebuffer swapChainframebuffers[16] = {};
+	for (uint32_t i = 0; i < lSwapchainImageCount; ++i)
+	{
+		swapChainframebuffers[i] = createFramebuffer(lDevice, renderPass, &lSwapChainImageViews[i], 1, lWindowWidth, lWindowHeight);
+	}
+	
+
+	// GraphicsPipeline
+	// VS/FS program
+	// VertexInputLayout
+	// FixedState (Blend/Rasterizer)
+
+	// Compile GLSL to spirv
+
+
 
 	VkSemaphore lAcquireSemaphore = createSemaphore(lDevice);
 	VkSemaphore lReleaseSemaphore = createSemaphore(lDevice);
@@ -313,13 +429,18 @@ int main(int argc, char* argv[])
 		lBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 		VK_CHECK(vkBeginCommandBuffer(lCommandBuffer, &lBeginInfo));
 
-		VkClearColorValue lClearColor = { 1, 0, 0, 1 };
-		VkImageSubresourceRange lRange = {};
-		lRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		lRange.levelCount = 1;
-		lRange.layerCount = 1;
-		//VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL 
-		vkCmdClearColorImage(lCommandBuffer, lSwapChainImages[lImageIndex], VK_IMAGE_LAYOUT_GENERAL, &lClearColor, 1, &lRange);
+		VkClearValue lClearColor = { 1, 0, 0, 1 };
+
+		VkRenderPassBeginInfo renderPassInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
+		renderPassInfo.renderPass = renderPass;
+		renderPassInfo.framebuffer = swapChainframebuffers[lImageIndex];
+		renderPassInfo.renderArea = { {0,0} , {(uint32_t)lWindowWidth, (uint32_t)lWindowHeight} };
+		renderPassInfo.clearValueCount = 1;
+		renderPassInfo.pClearValues = &lClearColor;
+
+		vkCmdBeginRenderPass(lCommandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+		vkCmdEndRenderPass(lCommandBuffer);
 		VK_CHECK(vkEndCommandBuffer(lCommandBuffer));
 
 
@@ -336,10 +457,12 @@ int main(int argc, char* argv[])
 		VK_CHECK(vkQueueSubmit(lGraphicsQueue, 1, &lSubmitInfo, VK_NULL_HANDLE));
 
 		VkPresentInfoKHR lPresentInfo = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
-		lPresentInfo.swapchainCount = 1;		// one per window?
-		lPresentInfo.pSwapchains = &lSwapChain; 
-		lPresentInfo.pImageIndices = &lImageIndex;
+		lPresentInfo.waitSemaphoreCount = 1;
 		lPresentInfo.pWaitSemaphores = &lReleaseSemaphore;
+		lPresentInfo.swapchainCount = 1;		// one per window?
+		lPresentInfo.pSwapchains = &lSwapChain;
+		lPresentInfo.pImageIndices = &lImageIndex;
+		//VkResult* pResults;
 		VK_CHECK(vkQueuePresentKHR(lGraphicsQueue, &lPresentInfo));
 
 		VK_CHECK(vkDeviceWaitIdle(lDevice));
