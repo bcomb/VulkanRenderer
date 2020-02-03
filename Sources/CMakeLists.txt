@@ -8,6 +8,10 @@ source_group("Sources" FILES ${sources})
 IF(WIN32)
         add_definitions(-DVK_USE_PLATFORM_WIN32_KHR)
         add_definitions(-DGLFW_EXPOSE_NATIVE_WIN32)
+        add_definitions(-D_CRT_SECURE_NO_WARNINGS) # fopen anoying warning
+        add_definitions(-DWIN32_LEAN_AND_MEAN)  # reduce number of include on windows header
+        add_definitions(-DNOMINMAX)
+
 ENDIF(WIN32)
 
 add_executable(${PROJECT_NAME} ${sources} )
