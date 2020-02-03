@@ -8,7 +8,6 @@
 #include <GLFW/glfw3native.h>
 
 #define VK_CHECK(call_) do { VkResult result_ = call_;	assert(result_ == VK_SUCCESS); } while(0);
-#define VK_CHECK_HANDLE(handle_) assert(handle_ != VK_NULL_HANDLE);
 #define ARRAY_COUNT(array_) (sizeof(array_) / sizeof(array_[0]))
 
 // Allocation on stack
@@ -17,16 +16,25 @@
 
 VkDebugUtilsMessengerEXT debugMessenger;
 
-
-VkSurfaceFormatKHR gSurfaceFormat;
-
 static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
 	VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
 	VkDebugUtilsMessageTypeFlagsEXT messageType,
 	const VkDebugUtilsMessengerCallbackDataEXT * pCallbackData,
 	void* pUserData)
 {
-	printf("validation layer: %s\n", pCallbackData->pMessage);
+	const char* errorTypeStr =
+		(messageType & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
+		? "[VERBOSE] "
+		: (messageType & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT)
+		? "[INFO] "
+		: (messageType & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
+		? "[WARNING] "
+		: "[ERROR] ";
+
+	printf("%s%s\n", errorTypeStr, pCallbackData->pMessage);
+	if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
+		assert(!"ERROR");
+
 	return VK_FALSE;
 }
 
@@ -134,13 +142,24 @@ VkSurfaceKHR createSurface(VkInstance pVkInstance, GLFWwindow* pWindow)
 	return lSurface;
 }
 
-VkSwapchainKHR createSwapchain(VkDevice pDevice, VkSurfaceKHR pSurface, uint32_t pFamilyIndex, uint32_t pWidth, uint32_t pHeight, uint32_t lSwapchainImageCount)
+VkSwapchainKHR createSwapchain(VkDevice pDevice, VkSurfaceKHR pSurface, VkSurfaceFormatKHR pSurfaceFormat, VkSurfaceCapabilitiesKHR pSurfaceCaps, uint32_t pFamilyIndex, uint32_t pWidth, uint32_t pHeight, uint32_t lSwapchainImageCount)
 {	
+	// On android VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR is generally not supported
+	// Spec said : at least one must be supported
+	VkCompositeAlphaFlagBitsKHR surfaceCompositeAlpha =
+		(pSurfaceCaps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR)
+		? VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR
+		: (pSurfaceCaps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR)
+		? VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR
+		: (pSurfaceCaps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR)
+		? VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR
+		: VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;
+
 	VkSwapchainCreateInfoKHR lSwapchainInfo = { VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
 	lSwapchainInfo.surface = pSurface;
 	lSwapchainInfo.minImageCount = lSwapchainImageCount;		// double buffer
-	lSwapchainInfo.imageFormat = gSurfaceFormat.format;		// some devices only support BGRA
-	lSwapchainInfo.imageColorSpace = gSurfaceFormat.colorSpace;
+	lSwapchainInfo.imageFormat = pSurfaceFormat.format;		// some devices only support BGRA
+	lSwapchainInfo.imageColorSpace = pSurfaceFormat.colorSpace;
 	lSwapchainInfo.imageExtent.width = pWidth;
 	lSwapchainInfo.imageExtent.height = pHeight;
 	lSwapchainInfo.imageArrayLayers = 1;
@@ -149,9 +168,9 @@ VkSwapchainKHR createSwapchain(VkDevice pDevice, VkSurfaceKHR pSurface, uint32_t
 	//lSwapchainInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
 	lSwapchainInfo.pQueueFamilyIndices = &pFamilyIndex;
 	lSwapchainInfo.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
-	lSwapchainInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+	lSwapchainInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;  //VK_PRESENT_MODE_MAILBOX_KHR, tiled device?
 	// The compositeAlpha field specifies if the alpha channel should be used for blending with other windows in the window system.You'll almost always want to simply ignore the alpha channel, hence VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR
-	lSwapchainInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+	lSwapchainInfo.compositeAlpha = surfaceCompositeAlpha;
 
 	VkSwapchainKHR lSwapChain;
 	VK_CHECK(vkCreateSwapchainKHR(pDevice, &lSwapchainInfo, nullptr, &lSwapChain));
@@ -230,13 +249,13 @@ VkCommandPool createCommandPool(VkDevice pDevice, uint32_t pFamilyIndex)
 	return lCommandPool;
 }
 
-VkImageView createImageView(VkDevice pDevice, VkImage pImage )
+VkImageView createImageView(VkDevice pDevice, VkImage pImage, VkFormat pFormat)
 {
 	VkImageViewCreateInfo lImageViewCreateInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
 	//VkImageViewCreateFlags     flags;
 	lImageViewCreateInfo.image = pImage;
 	lImageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-	lImageViewCreateInfo.format = gSurfaceFormat.format;
+	lImageViewCreateInfo.format = pFormat;
 	lImageViewCreateInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
 	lImageViewCreateInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
 	lImageViewCreateInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
@@ -251,22 +270,22 @@ VkImageView createImageView(VkDevice pDevice, VkImage pImage )
 	return imageView;
 }
 
-VkRenderPass createRenderPass(VkDevice pDevice)
+VkRenderPass createRenderPass(VkDevice pDevice, VkFormat pFormat)
 {
 	VkAttachmentDescription attachmentDesc[1] = {};
 	attachmentDesc[0].flags;
-	attachmentDesc[0].format = gSurfaceFormat.format; // swapChainImageFormat
+	attachmentDesc[0].format = pFormat; // swapChainImageFormat
 	attachmentDesc[0].samples = VK_SAMPLE_COUNT_1_BIT; // no msaa
 	attachmentDesc[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 	attachmentDesc[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 	attachmentDesc[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 	attachmentDesc[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-
 	//Using VK_IMAGE_LAYOUT_UNDEFINED for initialLayout means that we don't care
 	// what previous layout the image was in. The caveat of this special value is 
 	// that the contents of the image are not guaranteed to be preserved,
 	// but that doesn't matter since we're going to clear it anyway
 	attachmentDesc[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	//attachmentDesc[0].initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL; // require a imageBarrier layout transition before vkCmdBeginRenderPass
 	attachmentDesc[0].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
 	VkAttachmentReference colorAttachmentRef = {};
@@ -285,14 +304,36 @@ VkRenderPass createRenderPass(VkDevice pDevice)
 	//uint32_t                        preserveAttachmentCount;	// Attachments that are not used by this subpass, but for which the data must be preserved
 	//const uint32_t* pPreserveAttachments;
 
+	// Explicit dependency
+
+	// How to fill this to be ready for presentation?
+	// No need this for only one pass
+	VkSubpassDependency dependencies[2] = { };
+	dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+	dependencies[0].dstSubpass = 0;
+	dependencies[0].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	dependencies[0].srcAccessMask = 0;
+	dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+	dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+	// implicitly defined dependency would cover this, but let's replace it with this explicitly defined dependency!
+	dependencies[1].srcSubpass = 0;
+	dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+	dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	dependencies[1].dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+	dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+	dependencies[1].dstAccessMask = 0;
+	dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
 	VkRenderPassCreateInfo createInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
 	//VkRenderPassCreateFlags           flags;
 	createInfo.attachmentCount = 1;
 	createInfo.pAttachments = attachmentDesc;
 	createInfo.subpassCount = 1;
 	createInfo.pSubpasses = &subpassDesc;
-	//uint32_t                          dependencyCount;
-	//const VkSubpassDependency* pDependencies;
+	createInfo.dependencyCount = ARRAY_COUNT(dependencies);
+	createInfo.pDependencies = dependencies;
 
 	VkRenderPass renderPass;
 	VK_CHECK(vkCreateRenderPass(pDevice, &createInfo, nullptr, &renderPass));
@@ -485,6 +526,80 @@ VkPipeline createGraphicsPipeline(VkDevice pDevice, VkPipelineCache pPipelineCac
 	return pipeline;
 }
 
+void window_size_callback(GLFWwindow* window, int width, int height)
+{
+
+}
+
+VkImageMemoryBarrier imageBarrier(VkImage pImage, 
+	VkAccessFlags srcAccessMask, VkAccessFlags dstAccessMask,
+	VkImageLayout oldLayout, VkImageLayout newLayout)
+{
+	VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+	barrier.srcAccessMask = srcAccessMask;
+	barrier.dstAccessMask = dstAccessMask;
+	barrier.oldLayout = oldLayout;
+	barrier.newLayout = newLayout;
+	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.image = pImage;
+	barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT; // shorcut as we onl have color at the moment
+	barrier.subresourceRange.baseMipLevel = 0;
+	barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;	// Seem android have bug with this constant
+	barrier.subresourceRange.baseArrayLayer = 0;
+	barrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
+
+	return barrier;
+}
+
+// You should ONLY USE THIS FOR DEBUGGING - this is not something that should ever ship in real code, this will flushand invalidate all cachesand stall everything, it is a tool not to be used lightly!
+// That said, it can be really handy if you think you have a race condition in your appand you just want to serialize everything so you can debug it.
+// Note that this does not take care of image layouts - if you're debugging you can set the layout of all your images to GENERAL to overcome this, but again - do not do this in release code!
+/*
+void fullMemoryBarrier(VkCommandBuffer pCommandBuffer)
+{
+	VkMemoryBarrier memoryBarrier = { VK_STRUCTURE_TYPE_MEMORY_BARRIER };
+	memoryBarrier.srcAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT |
+		VK_ACCESS_INDEX_READ_BIT |
+		VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT |
+		VK_ACCESS_UNIFORM_READ_BIT |
+		VK_ACCESS_INPUT_ATTACHMENT_READ_BIT |
+		VK_ACCESS_SHADER_READ_BIT |
+		VK_ACCESS_SHADER_WRITE_BIT |
+		VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
+		VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+		VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+		VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+		VK_ACCESS_TRANSFER_READ_BIT |
+		VK_ACCESS_TRANSFER_WRITE_BIT |
+		VK_ACCESS_HOST_READ_BIT |
+		VK_ACCESS_HOST_WRITE_BIT;
+	memoryBarrier.dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT |
+		VK_ACCESS_INDEX_READ_BIT |
+		VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT |
+		VK_ACCESS_UNIFORM_READ_BIT |
+		VK_ACCESS_INPUT_ATTACHMENT_READ_BIT |
+		VK_ACCESS_SHADER_READ_BIT |
+		VK_ACCESS_SHADER_WRITE_BIT |
+		VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
+		VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+		VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+		VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+		VK_ACCESS_TRANSFER_READ_BIT |
+		VK_ACCESS_TRANSFER_WRITE_BIT |
+		VK_ACCESS_HOST_READ_BIT |
+		VK_ACCESS_HOST_WRITE_BIT;
+
+	vkCmdPipelineBarrier(pCommandBuffer,
+		VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, // srcStageMask
+		VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, // dstStageMask
+		,									// dependencyFlags
+		1,                                  // memoryBarrierCount
+		&memoryBarrier,                     // pMemoryBarriers
+		0,
+		nullptr);
+}
+*/
 
 // Entry point
 int main(int argc, char* argv[])
@@ -520,19 +635,23 @@ int main(int argc, char* argv[])
 	// Surface creation are platform specific
 	GLFWwindow* lWindow = glfwCreateWindow(512, 512, "VulkanRenderer", 0, 0);
 	assert(lWindow);
+
+	glfwSetWindowSizeCallback(lWindow, window_size_callback);
+
 	VkSurfaceKHR lSurface = createSurface(lVulkanInstance, lWindow);
 
 	VkBool32 lPresentationSupported = false;
 	VK_CHECK(vkGetPhysicalDeviceSurfaceSupportKHR(lPhysicalDevice, lQueueFamilyIndex, lSurface, &lPresentationSupported));
 	assert(lPresentationSupported);
 
-	VkSurfaceCapabilitiesKHR lPhysicalDeviceSurfaceCapabilities;
-	VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(lPhysicalDevice, lSurface, &lPhysicalDeviceSurfaceCapabilities));
+	VkSurfaceCapabilitiesKHR lSurfaceCaps;
+	VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(lPhysicalDevice, lSurface, &lSurfaceCaps));
+
 	uint32_t lFormatCount;
 	VK_CHECK(vkGetPhysicalDeviceSurfaceFormatsKHR(lPhysicalDevice, lSurface, &lFormatCount, nullptr));
 	VkSurfaceFormatKHR* lFormats = (VkSurfaceFormatKHR*)_alloca(lFormatCount * sizeof(VkSurfaceFormatKHR));	
 	VK_CHECK(vkGetPhysicalDeviceSurfaceFormatsKHR(lPhysicalDevice, lSurface, &lFormatCount, lFormats));
-	gSurfaceFormat = lFormats[0]; // todo : clean that
+	VkSurfaceFormatKHR lSurfaceFormat = lFormats[0]; // todo : clean that
 	uint32_t lPresentModeCount;
 	VK_CHECK(vkGetPhysicalDeviceSurfacePresentModesKHR(lPhysicalDevice, lSurface, &lPresentModeCount, nullptr));
 	VkPresentModeKHR* lPresentModes = (VkPresentModeKHR*)_alloca(lPresentModeCount * sizeof(VkPresentModeKHR));
@@ -542,7 +661,7 @@ int main(int argc, char* argv[])
 	int lWindowWidth = 0, lWindowHeight = 0;
 	glfwGetWindowSize(lWindow, &lWindowWidth, &lWindowHeight); // TODO: shortcut, window size and swapchain image size may be different !!!
 	uint32_t lSwapchainImageCount = 2;
-	VkSwapchainKHR lSwapChain = createSwapchain(lDevice, lSurface, lQueueFamilyIndex, lWindowWidth, lWindowHeight, lSwapchainImageCount);
+	VkSwapchainKHR lSwapChain = createSwapchain(lDevice, lSurface, lSurfaceFormat, lSurfaceCaps, lQueueFamilyIndex, lWindowWidth, lWindowHeight, lSwapchainImageCount);
 
 	VkImage lSwapChainImages[16] = {};
 	VK_CHECK(vkGetSwapchainImagesKHR(lDevice, lSwapChain, &lSwapchainImageCount, nullptr));
@@ -551,10 +670,10 @@ int main(int argc, char* argv[])
 	VkImageView lSwapChainImageViews[16] = {};
 	for (uint32_t i = 0; i < lSwapchainImageCount; ++i)
 	{
-		lSwapChainImageViews[i] = createImageView(lDevice, lSwapChainImages[i]);
+		lSwapChainImageViews[i] = createImageView(lDevice, lSwapChainImages[i], lSurfaceFormat.format);
 	}
 
-	VkRenderPass renderPass = createRenderPass(lDevice);
+	VkRenderPass renderPass = createRenderPass(lDevice, lSurfaceFormat.format);
 
 	VkFramebuffer swapChainframebuffers[16] = {};
 	for (uint32_t i = 0; i < lSwapchainImageCount; ++i)
@@ -607,7 +726,7 @@ int main(int argc, char* argv[])
 		lBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 		VK_CHECK(vkBeginCommandBuffer(lCommandBuffer, &lBeginInfo));
 
-		VkClearValue lClearColor = { 0.3, 0.2, 0.3, 1 };
+		VkClearValue lClearColor = { 0.3f, 0.2f, 0.3f, 1.0f };
 
 		VkRenderPassBeginInfo renderPassInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
 		renderPassInfo.renderPass = renderPass;
@@ -616,9 +735,14 @@ int main(int argc, char* argv[])
 		renderPassInfo.clearValueCount = 1;
 		renderPassInfo.pClearValues = &lClearColor;
 
+		// barrier not needed, LayoutTransition are done during BeginRenderPass/EndRenderPass
+		//VkImageMemoryBarrier renderBeginBarrier = imageBarrier(lSwapChainImages[lImageIndex], VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+		//vkCmdPipelineBarrier(lCommandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, 0, 0, 0, 1, &renderBeginBarrier);
+
 		vkCmdBeginRenderPass(lCommandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-		VkViewport viewport = { 0.0f,0.0f,(float)lWindowWidth, (float)lWindowHeight, 0.0f, 1.0f };
+		//VkViewport viewport = { 0.0f, 0.0f,(float)lWindowWidth, (float)lWindowHeight, 0.0f, 1.0f };
+		VkViewport viewport = { 0.0f,(float)lWindowHeight,(float)lWindowWidth, -(float)lWindowHeight, 0.0f, 1.0f }; // Vulkan 1_1 extension to reverse Y axis
 		vkCmdSetViewport(lCommandBuffer, 0, 1, &viewport);
 
 		VkRect2D scissor = { {0,0}, {(uint32_t)lWindowWidth,(uint32_t)lWindowHeight} };
@@ -627,6 +751,9 @@ int main(int argc, char* argv[])
 		// Draw stuff here
 		vkCmdBindPipeline(lCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, trianglePipeline);
 		vkCmdDraw(lCommandBuffer, 3, 1, 0, 0);
+
+		//VkImageMemoryBarrier presentBarrier = imageBarrier(lSwapChainImages[lImageIndex], 0, 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+		//vkCmdPipelineBarrier(lCommandBuffer, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, 0, 0, 0, 1, &presentBarrier);
 
 		vkCmdEndRenderPass(lCommandBuffer);
 		VK_CHECK(vkEndCommandBuffer(lCommandBuffer));
@@ -653,9 +780,14 @@ int main(int argc, char* argv[])
 		//VkResult* pResults;
 		VK_CHECK(vkQueuePresentKHR(lGraphicsQueue, &lPresentInfo));
 
+		// TODO : Barrier/Fence on CommandBuffer or DoubleBuffered CommandBuffer with sync ?
 		VK_CHECK(vkDeviceWaitIdle(lDevice));
 	}
 	
+	VK_CHECK(vkDeviceWaitIdle(lDevice));
+
+	// TODO : destroy ressources
+
 	vkDestroyInstance(lVulkanInstance, nullptr);
 
 	glfwDestroyWindow(lWindow);
