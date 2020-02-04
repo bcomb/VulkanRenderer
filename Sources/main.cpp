@@ -239,10 +239,20 @@ VkSemaphore createSemaphore(VkDevice pDevice)
 	return lSemaphore;
 }
 
+VkFence createFence(VkDevice pDevice)
+{
+	VkFenceCreateInfo createInfo = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+	createInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+	VkFence fence;
+	vkCreateFence(pDevice, &createInfo, nullptr, &fence);
+	return fence;
+}
+
 VkCommandPool createCommandPool(VkDevice pDevice, uint32_t pFamilyIndex)
 {
 	VkCommandPoolCreateInfo lCreateInfo = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
-	lCreateInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+	lCreateInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 	lCreateInfo.queueFamilyIndex = pFamilyIndex;
 	VkCommandPool lCommandPool;
 	VK_CHECK(vkCreateCommandPool(pDevice, &lCreateInfo, nullptr, &lCommandPool));
@@ -705,26 +715,42 @@ int main(int argc, char* argv[])
 
 	VkCommandPool lCommandPool = createCommandPool(lDevice, lQueueFamilyIndex);
 
+
+	const uint32_t COMMAND_BUFFER_COUNT = 2;
+
 	VkCommandBufferAllocateInfo lAllocateInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
 	lAllocateInfo.commandPool = lCommandPool;
 	lAllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-	lAllocateInfo.commandBufferCount = 1;
-	VkCommandBuffer lCommandBuffer;
-	VK_CHECK(vkAllocateCommandBuffers(lDevice, &lAllocateInfo, &lCommandBuffer));
+	lAllocateInfo.commandBufferCount = COMMAND_BUFFER_COUNT;
+	VkCommandBuffer commandBuffers[COMMAND_BUFFER_COUNT];
+	VK_CHECK(vkAllocateCommandBuffers(lDevice, &lAllocateInfo, commandBuffers));
+
+	VkFence commandBufferFence[COMMAND_BUFFER_COUNT] = {};
+	for (int i = 0; i < COMMAND_BUFFER_COUNT; ++i)
+	{
+		commandBufferFence[i] = createFence(lDevice);
+	}
+	
 
 	// MainLoop
+	uint32_t commandBufferIndex = COMMAND_BUFFER_COUNT-1;
 	while (!glfwWindowShouldClose(lWindow))
 	{
 		glfwPollEvents();
 
+		commandBufferIndex = (++commandBufferIndex) % COMMAND_BUFFER_COUNT;
+		VK_CHECK(vkWaitForFences(lDevice, 1, &commandBufferFence[commandBufferIndex], VK_TRUE, UINT64_MAX));
+		VK_CHECK(vkResetFences(lDevice, 1, &commandBufferFence[commandBufferIndex]));
+
 		uint32_t lImageIndex = 0;
 		VK_CHECK(vkAcquireNextImageKHR(lDevice, lSwapChain, ~0ull, lAcquireSemaphore, VK_NULL_HANDLE, &lImageIndex));
 
-		VK_CHECK(vkResetCommandPool(lDevice, lCommandPool, 0));
+		//VK_CHECK(vkResetCommandBuffer(commandBuffers[commandBufferIndex], 0));
+		//VK_CHECK(vkResetCommandPool(lDevice, lCommandPool, 0));
 
 		VkCommandBufferBeginInfo lBeginInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
 		lBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-		VK_CHECK(vkBeginCommandBuffer(lCommandBuffer, &lBeginInfo));
+		VK_CHECK(vkBeginCommandBuffer(commandBuffers[commandBufferIndex], &lBeginInfo));
 
 		VkClearValue lClearColor = { 0.3f, 0.2f, 0.3f, 1.0f };
 
@@ -739,24 +765,24 @@ int main(int argc, char* argv[])
 		//VkImageMemoryBarrier renderBeginBarrier = imageBarrier(lSwapChainImages[lImageIndex], VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 		//vkCmdPipelineBarrier(lCommandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, 0, 0, 0, 1, &renderBeginBarrier);
 
-		vkCmdBeginRenderPass(lCommandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+		vkCmdBeginRenderPass(commandBuffers[commandBufferIndex], &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
 		//VkViewport viewport = { 0.0f, 0.0f,(float)lWindowWidth, (float)lWindowHeight, 0.0f, 1.0f };
 		VkViewport viewport = { 0.0f,(float)lWindowHeight,(float)lWindowWidth, -(float)lWindowHeight, 0.0f, 1.0f }; // Vulkan 1_1 extension to reverse Y axis
-		vkCmdSetViewport(lCommandBuffer, 0, 1, &viewport);
+		vkCmdSetViewport(commandBuffers[commandBufferIndex], 0, 1, &viewport);
 
 		VkRect2D scissor = { {0,0}, {(uint32_t)lWindowWidth,(uint32_t)lWindowHeight} };
-		vkCmdSetScissor(lCommandBuffer, 0, 1, &scissor);
+		vkCmdSetScissor(commandBuffers[commandBufferIndex], 0, 1, &scissor);
 
 		// Draw stuff here
-		vkCmdBindPipeline(lCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, trianglePipeline);
-		vkCmdDraw(lCommandBuffer, 3, 1, 0, 0);
+		vkCmdBindPipeline(commandBuffers[commandBufferIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, trianglePipeline);
+		vkCmdDraw(commandBuffers[commandBufferIndex], 3, 1, 0, 0);
 
 		//VkImageMemoryBarrier presentBarrier = imageBarrier(lSwapChainImages[lImageIndex], 0, 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 		//vkCmdPipelineBarrier(lCommandBuffer, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, 0, 0, 0, 1, &presentBarrier);
 
-		vkCmdEndRenderPass(lCommandBuffer);
-		VK_CHECK(vkEndCommandBuffer(lCommandBuffer));
+		vkCmdEndRenderPass(commandBuffers[commandBufferIndex]);
+		VK_CHECK(vkEndCommandBuffer(commandBuffers[commandBufferIndex]));
 
 
 		// https://github.com/KhronosGroup/Vulkan-Docs/wiki/Synchronization-Examples
@@ -766,10 +792,10 @@ int main(int argc, char* argv[])
 		lSubmitInfo.pWaitSemaphores = &lAcquireSemaphore;
 		lSubmitInfo.pWaitDstStageMask = &lSubmitStageMask;
 		lSubmitInfo.commandBufferCount = 1;
-		lSubmitInfo.pCommandBuffers = &lCommandBuffer;
+		lSubmitInfo.pCommandBuffers = &commandBuffers[commandBufferIndex];
 		lSubmitInfo.signalSemaphoreCount = 1;
 		lSubmitInfo.pSignalSemaphores = &lReleaseSemaphore;
-		VK_CHECK(vkQueueSubmit(lGraphicsQueue, 1, &lSubmitInfo, VK_NULL_HANDLE));
+		VK_CHECK(vkQueueSubmit(lGraphicsQueue, 1, &lSubmitInfo, commandBufferFence[commandBufferIndex]));
 
 		VkPresentInfoKHR lPresentInfo = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
 		lPresentInfo.waitSemaphoreCount = 1;
@@ -781,7 +807,7 @@ int main(int argc, char* argv[])
 		VK_CHECK(vkQueuePresentKHR(lGraphicsQueue, &lPresentInfo));
 
 		// TODO : Barrier/Fence on CommandBuffer or DoubleBuffered CommandBuffer with sync ?
-		VK_CHECK(vkDeviceWaitIdle(lDevice));
+		//VK_CHECK(vkDeviceWaitIdle(lDevice));
 	}
 	
 	VK_CHECK(vkDeviceWaitIdle(lDevice));
