@@ -76,11 +76,8 @@ VkPhysicalDevice pickPhysicalDevice(uint32_t pPhysicalDevicesCount, const VkPhys
 	{
 		VkPhysicalDeviceProperties lProperties;
 		vkGetPhysicalDeviceProperties(pPhysicalDevices[0], &lProperties);
-		if (lProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
-		{
-			printf("Picking fallback GPU : %s\n", lProperties.deviceName);
-			return pPhysicalDevices[0];
-		}
+		printf("Picking fallback GPU : %s\n", lProperties.deviceName);
+		return pPhysicalDevices[0];
 	}
 
 	printf("No physical device available\n");
@@ -767,8 +764,8 @@ int main(int argc, char* argv[])
 
 		vkCmdBeginRenderPass(commandBuffers[commandBufferIndex], &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-		//VkViewport viewport = { 0.0f, 0.0f,(float)lWindowWidth, (float)lWindowHeight, 0.0f, 1.0f };
-		VkViewport viewport = { 0.0f,(float)lWindowHeight,(float)lWindowWidth, -(float)lWindowHeight, 0.0f, 1.0f }; // Vulkan 1_1 extension to reverse Y axis
+		VkViewport viewport = { 0.0f, 0.0f,(float)lWindowWidth, (float)lWindowHeight, 0.0f, 1.0f };
+		//VkViewport viewport = { 0.0f,(float)lWindowHeight,(float)lWindowWidth, -(float)lWindowHeight, 0.0f, 1.0f }; // Vulkan 1_1 extension to reverse Y axis
 		vkCmdSetViewport(commandBuffers[commandBufferIndex], 0, 1, &viewport);
 
 		VkRect2D scissor = { {0,0}, {(uint32_t)lWindowWidth,(uint32_t)lWindowHeight} };
