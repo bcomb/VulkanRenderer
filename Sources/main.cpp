@@ -688,8 +688,8 @@ int main(int argc, char* argv[])
 		swapChainframebuffers[i] = createFramebuffer(lDevice, renderPass, &lSwapChainImageViews[i], 1, lWindowWidth, lWindowHeight);
 	}
 	
-	VkShaderModule vertexShader = loadShader(lDevice, "../../Shaders/triangle.vert.spv");
-	VkShaderModule fragmentShader = loadShader(lDevice, "../../Shaders/triangle.frag.spv");
+	VkShaderModule vertexShader = loadShader(lDevice, "../../Shaders/triangle.vert.glsl.spv");
+	VkShaderModule fragmentShader = loadShader(lDevice, "../../Shaders/triangle.frag.glsl.spv");
 
 
 	VkPipelineLayout triangleLayout = createPipelineLayout(lDevice);
