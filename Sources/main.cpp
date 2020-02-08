@@ -4,6 +4,7 @@
 #include <malloc.h>
 #include <stdio.h>
 
+#include <vector>
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
 
@@ -14,7 +15,7 @@
 // Automatically destroyed when exit function
 #define STACK_ALLOC(TYPE_,COUNT_) (TYPE_*)_alloca(sizeof(TYPE_) * COUNT_)
 
-VkDebugUtilsMessengerEXT debugMessenger;
+VkDebugUtilsMessengerEXT gDebugMessenger;
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
 	VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
@@ -48,15 +49,24 @@ VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMes
 	}
 }
 
-void setupDebugMessenger(VkInstance pInstance)
+void registerDebugMessenger(VkInstance pInstance)
 {
 	VkDebugUtilsMessengerCreateInfoEXT createInfo = { VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT };
 	createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
 	createInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
 	createInfo.pfnUserCallback = debugCallback;
-	VK_CHECK(CreateDebugUtilsMessengerEXT(pInstance, &createInfo, nullptr, &debugMessenger));
+	VK_CHECK(CreateDebugUtilsMessengerEXT(pInstance, &createInfo, nullptr, &gDebugMessenger));
 }
 
+
+void unregisterDebugMessenger(VkInstance pInstance, VkDebugUtilsMessengerEXT pDebugMessenger)
+{
+	auto _vkDestroyDebugUtilsMessengerEXT = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(pInstance, "vkDestroyDebugUtilsMessengerEXT");
+	if (_vkDestroyDebugUtilsMessengerEXT)
+	{
+		_vkDestroyDebugUtilsMessengerEXT(pInstance, pDebugMessenger, nullptr);
+	}
+}
 
 // Search for the discrete GPU
 VkPhysicalDevice pickPhysicalDevice(uint32_t pPhysicalDevicesCount, const VkPhysicalDevice* pPhysicalDevices)
@@ -139,7 +149,7 @@ VkSurfaceKHR createSurface(VkInstance pVkInstance, GLFWwindow* pWindow)
 	return lSurface;
 }
 
-VkSwapchainKHR createSwapchain(VkDevice pDevice, VkSurfaceKHR pSurface, VkSurfaceFormatKHR pSurfaceFormat, VkSurfaceCapabilitiesKHR pSurfaceCaps, uint32_t pFamilyIndex, uint32_t pWidth, uint32_t pHeight, uint32_t lSwapchainImageCount)
+VkSwapchainKHR createSwapchain(VkDevice pDevice, VkSurfaceKHR pSurface, VkSurfaceFormatKHR pSurfaceFormat, VkSurfaceCapabilitiesKHR pSurfaceCaps, uint32_t pFamilyIndex, uint32_t pWidth, uint32_t pHeight, uint32_t lSwapchainImageCount, VkSwapchainKHR pOldSwapChain)
 {	
 	// On android VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR is generally not supported
 	// Spec said : at least one must be supported
@@ -168,6 +178,7 @@ VkSwapchainKHR createSwapchain(VkDevice pDevice, VkSurfaceKHR pSurface, VkSurfac
 	lSwapchainInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;  //VK_PRESENT_MODE_MAILBOX_KHR, tiled device?
 	// The compositeAlpha field specifies if the alpha channel should be used for blending with other windows in the window system.You'll almost always want to simply ignore the alpha channel, hence VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR
 	lSwapchainInfo.compositeAlpha = surfaceCompositeAlpha;
+	lSwapchainInfo.oldSwapchain = pOldSwapChain;
 
 	VkSwapchainKHR lSwapChain;
 	VK_CHECK(vkCreateSwapchainKHR(pDevice, &lSwapchainInfo, nullptr, &lSwapChain));
@@ -608,6 +619,70 @@ void fullMemoryBarrier(VkCommandBuffer pCommandBuffer)
 }
 */
 
+
+struct Swapchain
+{
+	VkSwapchainKHR swapchain;
+	uint32_t width, height;
+	uint32_t imageCount;
+	std::vector<VkImage> images;
+	std::vector<VkImageView> imageViews;
+	std::vector<VkFramebuffer> framebuffers;
+};
+
+void createSwapchain(Swapchain& pResult, VkSwapchainKHR pOldSwapChain, VkDevice pDevice, VkSurfaceKHR pSurface, VkSurfaceFormatKHR pSurfaceFormat, VkSurfaceCapabilitiesKHR pSurfaceCaps, uint32_t pQueueFamilyIndex, uint32_t pWidth, uint32_t pHeight, uint32_t pRequestSwapChainImage, VkRenderPass pRenderPass)
+{
+	VkSwapchainKHR swapChain = createSwapchain(pDevice, pSurface, pSurfaceFormat, pSurfaceCaps, pQueueFamilyIndex, pWidth, pHeight, pRequestSwapChainImage, pOldSwapChain);
+
+	uint32_t imageCount = 0;
+	VK_CHECK(vkGetSwapchainImagesKHR(pDevice, swapChain, &imageCount, nullptr));
+
+	std::vector<VkImage> images(imageCount);
+	VK_CHECK(vkGetSwapchainImagesKHR(pDevice, swapChain, &imageCount, images.data()));
+
+	std::vector<VkImageView> imageViews(imageCount);
+	for (uint32_t i = 0; i < imageCount; ++i)
+	{
+		imageViews[i] = createImageView(pDevice, images[i], pSurfaceFormat.format);
+	}
+
+	std::vector<VkFramebuffer>framebuffers(imageCount);
+	for (uint32_t i = 0; i < imageCount; ++i)
+	{
+		framebuffers[i] = createFramebuffer(pDevice, pRenderPass, &imageViews[i], 1, pWidth, pHeight);
+	}
+
+	pResult.swapchain = swapChain;
+	pResult.width = pWidth;
+	pResult.height = pHeight;
+	pResult.imageCount = imageCount;
+	pResult.images = images;
+	pResult.imageViews = imageViews;
+	pResult.framebuffers = framebuffers;
+}
+
+void destroySwapchain(VkDevice pDevice, const Swapchain& pSwapchain)
+{
+	//for (auto image : pSwapchain.images)
+	//	vkDestroyImage(pDevice, image, nullptr);
+
+	for (auto imageView : pSwapchain.imageViews)
+		vkDestroyImageView(pDevice, imageView, nullptr);
+
+	for (auto framebuffer : pSwapchain.framebuffers)
+		vkDestroyFramebuffer(pDevice, framebuffer, nullptr);
+
+	vkDestroySwapchainKHR(pDevice, pSwapchain.swapchain, nullptr);
+}
+
+void resizeSwapchain(Swapchain& pResult, VkSwapchainKHR pOldSwapChain, VkDevice pDevice, VkSurfaceKHR pSurface, VkSurfaceFormatKHR pSurfaceFormat, VkSurfaceCapabilitiesKHR pSurfaceCaps, uint32_t pQueueFamilyIndex, uint32_t pWidth, uint32_t pHeight, uint32_t pRequestSwapChainImage, VkRenderPass pRenderPass)
+{
+	Swapchain old = pResult;
+	createSwapchain(pResult, old.swapchain, pDevice, pSurface, pSurfaceFormat, pSurfaceCaps, pQueueFamilyIndex, pWidth, pHeight, pRequestSwapChainImage, pRenderPass);
+	VK_CHECK(vkDeviceWaitIdle(pDevice));
+	destroySwapchain(pDevice, old );
+}
+
 // Entry point
 int main(int argc, char* argv[])
 {
@@ -619,7 +694,7 @@ int main(int argc, char* argv[])
 
 	VkInstance lVulkanInstance = createInstance();
 #ifdef _DEBUG
-	setupDebugMessenger(lVulkanInstance);
+	registerDebugMessenger(lVulkanInstance);
 #endif
 
 	// Enumerate Device
@@ -668,34 +743,21 @@ int main(int argc, char* argv[])
 	int lWindowWidth = 0, lWindowHeight = 0;
 	glfwGetWindowSize(lWindow, &lWindowWidth, &lWindowHeight); // TODO: shortcut, window size and swapchain image size may be different !!!
 	uint32_t lSwapchainImageCount = 2;
-	VkSwapchainKHR lSwapChain = createSwapchain(lDevice, lSurface, lSurfaceFormat, lSurfaceCaps, lQueueFamilyIndex, lWindowWidth, lWindowHeight, lSwapchainImageCount);
 
-	VkImage lSwapChainImages[16] = {};
-	VK_CHECK(vkGetSwapchainImagesKHR(lDevice, lSwapChain, &lSwapchainImageCount, nullptr));
-	VK_CHECK(vkGetSwapchainImagesKHR(lDevice, lSwapChain, &lSwapchainImageCount, lSwapChainImages));
+	VkRenderPass lRenderPass = createRenderPass(lDevice, lSurfaceFormat.format);
 
-	VkImageView lSwapChainImageViews[16] = {};
-	for (uint32_t i = 0; i < lSwapchainImageCount; ++i)
-	{
-		lSwapChainImageViews[i] = createImageView(lDevice, lSwapChainImages[i], lSurfaceFormat.format);
-	}
+	Swapchain lSwapchain;
+	createSwapchain(lSwapchain, VK_NULL_HANDLE, lDevice, lSurface, lSurfaceFormat, lSurfaceCaps, lQueueFamilyIndex, lWindowWidth, lWindowHeight, 2, lRenderPass);
 
-	VkRenderPass renderPass = createRenderPass(lDevice, lSurfaceFormat.format);
-
-	VkFramebuffer swapChainframebuffers[16] = {};
-	for (uint32_t i = 0; i < lSwapchainImageCount; ++i)
-	{
-		swapChainframebuffers[i] = createFramebuffer(lDevice, renderPass, &lSwapChainImageViews[i], 1, lWindowWidth, lWindowHeight);
-	}
 	
-	VkShaderModule vertexShader = loadShader(lDevice, "../../Shaders/triangle.vert.glsl.spv");
-	VkShaderModule fragmentShader = loadShader(lDevice, "../../Shaders/triangle.frag.glsl.spv");
+	VkShaderModule lVertexShader = loadShader(lDevice, "../../Shaders/triangle.vert.glsl.spv");
+	VkShaderModule lFragmentShader = loadShader(lDevice, "../../Shaders/triangle.frag.glsl.spv");
 
 
-	VkPipelineLayout triangleLayout = createPipelineLayout(lDevice);
+	VkPipelineLayout lTriangleLayout = createPipelineLayout(lDevice);
 
-	VkPipelineCache pipelineCache = 0;
-	VkPipeline trianglePipeline = createGraphicsPipeline(lDevice, pipelineCache, triangleLayout, renderPass, vertexShader, fragmentShader);
+	VkPipelineCache lPipelineCache = 0;
+	VkPipeline lTrianglePipeline = createGraphicsPipeline(lDevice, lPipelineCache, lTriangleLayout, lRenderPass, lVertexShader, lFragmentShader);
 
 
 	// GraphicsPipeline
@@ -714,46 +776,53 @@ int main(int argc, char* argv[])
 
 
 	const uint32_t COMMAND_BUFFER_COUNT = 2;
-
 	VkCommandBufferAllocateInfo lAllocateInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
 	lAllocateInfo.commandPool = lCommandPool;
 	lAllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 	lAllocateInfo.commandBufferCount = COMMAND_BUFFER_COUNT;
-	VkCommandBuffer commandBuffers[COMMAND_BUFFER_COUNT];
-	VK_CHECK(vkAllocateCommandBuffers(lDevice, &lAllocateInfo, commandBuffers));
+	VkCommandBuffer lCommandBuffers[COMMAND_BUFFER_COUNT];
+	VK_CHECK(vkAllocateCommandBuffers(lDevice, &lAllocateInfo, lCommandBuffers));
 
-	VkFence commandBufferFence[COMMAND_BUFFER_COUNT] = {};
+	VkFence lCommandBufferFences[COMMAND_BUFFER_COUNT] = {};
 	for (int i = 0; i < COMMAND_BUFFER_COUNT; ++i)
 	{
-		commandBufferFence[i] = createFence(lDevice);
+		lCommandBufferFences[i] = createFence(lDevice);
 	}
 	
-
 	// MainLoop
-	uint32_t commandBufferIndex = COMMAND_BUFFER_COUNT-1;
+	uint32_t lCommandBufferIndex = COMMAND_BUFFER_COUNT-1;
 	while (!glfwWindowShouldClose(lWindow))
 	{
 		glfwPollEvents();
 
-		commandBufferIndex = (++commandBufferIndex) % COMMAND_BUFFER_COUNT;
-		VK_CHECK(vkWaitForFences(lDevice, 1, &commandBufferFence[commandBufferIndex], VK_TRUE, UINT64_MAX));
-		VK_CHECK(vkResetFences(lDevice, 1, &commandBufferFence[commandBufferIndex]));
+		int lNewWindowWidth = 0, lNewWindowHeight = 0;
+		glfwGetWindowSize(lWindow, &lNewWindowWidth, &lNewWindowHeight);
+		if (lNewWindowWidth != lWindowWidth || lNewWindowHeight != lWindowHeight)
+		{
+			lWindowWidth = lNewWindowWidth;
+			lWindowHeight = lNewWindowHeight;
+			resizeSwapchain(lSwapchain, lSwapchain.swapchain, lDevice, lSurface, lSurfaceFormat, lSurfaceCaps, lQueueFamilyIndex, lWindowWidth, lWindowHeight, 2, lRenderPass);
+		}
+
+		lCommandBufferIndex = (++lCommandBufferIndex) % COMMAND_BUFFER_COUNT;
+		VK_CHECK(vkWaitForFences(lDevice, 1, &lCommandBufferFences[lCommandBufferIndex], VK_TRUE, UINT64_MAX));
+		VK_CHECK(vkResetFences(lDevice, 1, &lCommandBufferFences[lCommandBufferIndex]));
 
 		uint32_t lImageIndex = 0;
-		VK_CHECK(vkAcquireNextImageKHR(lDevice, lSwapChain, ~0ull, lAcquireSemaphore, VK_NULL_HANDLE, &lImageIndex));
+		VK_CHECK(vkAcquireNextImageKHR(lDevice, lSwapchain.swapchain, ~0ull, lAcquireSemaphore, VK_NULL_HANDLE, &lImageIndex));
 
 		//VK_CHECK(vkResetCommandBuffer(commandBuffers[commandBufferIndex], 0));
 		//VK_CHECK(vkResetCommandPool(lDevice, lCommandPool, 0));
 
 		VkCommandBufferBeginInfo lBeginInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
 		lBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-		VK_CHECK(vkBeginCommandBuffer(commandBuffers[commandBufferIndex], &lBeginInfo));
+		VK_CHECK(vkBeginCommandBuffer(lCommandBuffers[lCommandBufferIndex], &lBeginInfo));
 
 		VkClearValue lClearColor = { 0.3f, 0.2f, 0.3f, 1.0f };
 
 		VkRenderPassBeginInfo renderPassInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
-		renderPassInfo.renderPass = renderPass;
-		renderPassInfo.framebuffer = swapChainframebuffers[lImageIndex];
+		renderPassInfo.renderPass = lRenderPass;
+		renderPassInfo.framebuffer = lSwapchain.framebuffers[lImageIndex];
 		renderPassInfo.renderArea = { {0,0} , {(uint32_t)lWindowWidth, (uint32_t)lWindowHeight} };
 		renderPassInfo.clearValueCount = 1;
 		renderPassInfo.pClearValues = &lClearColor;
@@ -762,24 +831,24 @@ int main(int argc, char* argv[])
 		//VkImageMemoryBarrier renderBeginBarrier = imageBarrier(lSwapChainImages[lImageIndex], VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 		//vkCmdPipelineBarrier(lCommandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, 0, 0, 0, 1, &renderBeginBarrier);
 
-		vkCmdBeginRenderPass(commandBuffers[commandBufferIndex], &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+		vkCmdBeginRenderPass(lCommandBuffers[lCommandBufferIndex], &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
 		VkViewport viewport = { 0.0f, 0.0f,(float)lWindowWidth, (float)lWindowHeight, 0.0f, 1.0f };
 		//VkViewport viewport = { 0.0f,(float)lWindowHeight,(float)lWindowWidth, -(float)lWindowHeight, 0.0f, 1.0f }; // Vulkan 1_1 extension to reverse Y axis
-		vkCmdSetViewport(commandBuffers[commandBufferIndex], 0, 1, &viewport);
+		vkCmdSetViewport(lCommandBuffers[lCommandBufferIndex], 0, 1, &viewport);
 
 		VkRect2D scissor = { {0,0}, {(uint32_t)lWindowWidth,(uint32_t)lWindowHeight} };
-		vkCmdSetScissor(commandBuffers[commandBufferIndex], 0, 1, &scissor);
+		vkCmdSetScissor(lCommandBuffers[lCommandBufferIndex], 0, 1, &scissor);
 
 		// Draw stuff here
-		vkCmdBindPipeline(commandBuffers[commandBufferIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, trianglePipeline);
-		vkCmdDraw(commandBuffers[commandBufferIndex], 3, 1, 0, 0);
+		vkCmdBindPipeline(lCommandBuffers[lCommandBufferIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, lTrianglePipeline);
+		vkCmdDraw(lCommandBuffers[lCommandBufferIndex], 3, 1, 0, 0);
 
 		//VkImageMemoryBarrier presentBarrier = imageBarrier(lSwapChainImages[lImageIndex], 0, 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 		//vkCmdPipelineBarrier(lCommandBuffer, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, 0, 0, 0, 1, &presentBarrier);
 
-		vkCmdEndRenderPass(commandBuffers[commandBufferIndex]);
-		VK_CHECK(vkEndCommandBuffer(commandBuffers[commandBufferIndex]));
+		vkCmdEndRenderPass(lCommandBuffers[lCommandBufferIndex]);
+		VK_CHECK(vkEndCommandBuffer(lCommandBuffers[lCommandBufferIndex]));
 
 
 		// https://github.com/KhronosGroup/Vulkan-Docs/wiki/Synchronization-Examples
@@ -789,16 +858,16 @@ int main(int argc, char* argv[])
 		lSubmitInfo.pWaitSemaphores = &lAcquireSemaphore;
 		lSubmitInfo.pWaitDstStageMask = &lSubmitStageMask;
 		lSubmitInfo.commandBufferCount = 1;
-		lSubmitInfo.pCommandBuffers = &commandBuffers[commandBufferIndex];
+		lSubmitInfo.pCommandBuffers = &lCommandBuffers[lCommandBufferIndex];
 		lSubmitInfo.signalSemaphoreCount = 1;
 		lSubmitInfo.pSignalSemaphores = &lReleaseSemaphore;
-		VK_CHECK(vkQueueSubmit(lGraphicsQueue, 1, &lSubmitInfo, commandBufferFence[commandBufferIndex]));
+		VK_CHECK(vkQueueSubmit(lGraphicsQueue, 1, &lSubmitInfo, lCommandBufferFences[lCommandBufferIndex]));
 
 		VkPresentInfoKHR lPresentInfo = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
 		lPresentInfo.waitSemaphoreCount = 1;
 		lPresentInfo.pWaitSemaphores = &lReleaseSemaphore;
 		lPresentInfo.swapchainCount = 1;		// one per window?
-		lPresentInfo.pSwapchains = &lSwapChain;
+		lPresentInfo.pSwapchains = &lSwapchain.swapchain;
 		lPresentInfo.pImageIndices = &lImageIndex;
 		//VkResult* pResults;
 		VK_CHECK(vkQueuePresentKHR(lGraphicsQueue, &lPresentInfo));
@@ -810,6 +879,34 @@ int main(int argc, char* argv[])
 	VK_CHECK(vkDeviceWaitIdle(lDevice));
 
 	// TODO : destroy ressources
+
+	vkDestroyCommandPool(lDevice, lCommandPool, nullptr);
+
+	destroySwapchain(lDevice, lSwapchain);
+
+	vkDestroyPipeline(lDevice, lTrianglePipeline, nullptr);
+
+	vkDestroyPipelineLayout(lDevice, lTriangleLayout, nullptr);
+
+	vkDestroyShaderModule(lDevice, lVertexShader, nullptr);
+	vkDestroyShaderModule(lDevice, lFragmentShader, nullptr);
+
+	vkDestroyRenderPass(lDevice, lRenderPass, nullptr);
+
+	vkDestroySemaphore(lDevice, lReleaseSemaphore, nullptr);
+	vkDestroySemaphore(lDevice, lAcquireSemaphore, nullptr);
+	
+	for (int i = 0; i < ARRAY_COUNT(lCommandBufferFences); ++i)
+		vkDestroyFence(lDevice, lCommandBufferFences[i], nullptr);
+
+
+	vkDestroySurfaceKHR(lVulkanInstance, lSurface, nullptr);
+
+	vkDestroyDevice(lDevice, nullptr);
+
+#ifdef _DEBUG
+	unregisterDebugMessenger(lVulkanInstance, gDebugMessenger);
+#endif
 
 	vkDestroyInstance(lVulkanInstance, nullptr);
 
