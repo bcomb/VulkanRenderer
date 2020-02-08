@@ -16,6 +16,13 @@ project (VulkanRenderer)
 find_package(Vulkan REQUIRED)
 add_subdirectory(ThirdParty/glfw)
 
+if (WIN32)
+   set(VOLK_STATIC_DEFINES VK_USE_PLATFORM_WIN32_KHR)
+endif(WIN32)
+add_subdirectory(ThirdParty/volk)
+
+add_subdirectory(ThirdParty/meshoptimizer)
+
 #set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT ${PROJECT_NAME})
 
 

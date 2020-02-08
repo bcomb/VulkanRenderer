@@ -19,7 +19,7 @@ source_group(Shaders FILES ${glsl_sources})
 
 
 add_executable(${PROJECT_NAME} ${sources} ${glsl_sources})
-target_link_libraries (${PROJECT_NAME} LINK_PUBLIC glfw Vulkan::Vulkan)
+target_link_libraries (${PROJECT_NAME} PRIVATE glfw volk meshoptimizer)
 #set_target_properties(${PROJECT_NAME} PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_HOME_DIRECTORY}/bin")
 
 foreach(fileItem ${glsl_sources})

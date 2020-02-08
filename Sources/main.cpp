@@ -1,12 +1,14 @@
-#include <vulkan/vulkan.h>
+//#include <vulkan/vulkan.h>
 
 #include <assert.h>
 #include <malloc.h>
 #include <stdio.h>
 
-#include <vector>
+#include <volk.h>
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
+
+#include <vector>
 
 #define VK_CHECK(call_) do { VkResult result_ = call_;	assert(result_ == VK_SUCCESS); } while(0);
 #define ARRAY_COUNT(array_) (sizeof(array_) / sizeof(array_[0]))
@@ -39,33 +41,19 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
 	return VK_FALSE;
 }
 
-VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger) {
-	auto func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
-	if (func != nullptr) {
-		return func(instance, pCreateInfo, pAllocator, pDebugMessenger);
-	}
-	else {
-		return VK_ERROR_EXTENSION_NOT_PRESENT;
-	}
-}
-
 void registerDebugMessenger(VkInstance pInstance)
 {
 	VkDebugUtilsMessengerCreateInfoEXT createInfo = { VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT };
 	createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
 	createInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
 	createInfo.pfnUserCallback = debugCallback;
-	VK_CHECK(CreateDebugUtilsMessengerEXT(pInstance, &createInfo, nullptr, &gDebugMessenger));
+	VK_CHECK(vkCreateDebugUtilsMessengerEXT(pInstance, &createInfo, nullptr, &gDebugMessenger));
 }
 
 
 void unregisterDebugMessenger(VkInstance pInstance, VkDebugUtilsMessengerEXT pDebugMessenger)
 {
-	auto _vkDestroyDebugUtilsMessengerEXT = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(pInstance, "vkDestroyDebugUtilsMessengerEXT");
-	if (_vkDestroyDebugUtilsMessengerEXT)
-	{
-		_vkDestroyDebugUtilsMessengerEXT(pInstance, pDebugMessenger, nullptr);
-	}
+	vkDestroyDebugUtilsMessengerEXT(pInstance, pDebugMessenger, nullptr);
 }
 
 // Search for the discrete GPU
@@ -686,6 +674,8 @@ void resizeSwapchain(Swapchain& pResult, VkSwapchainKHR pOldSwapChain, VkDevice 
 // Entry point
 int main(int argc, char* argv[])
 {
+	VK_CHECK(volkInitialize());
+
 	printf("Hello VulkanRenderer\n");
 	int lSuccess = glfwInit();
 	assert(lSuccess);
@@ -693,6 +683,10 @@ int main(int argc, char* argv[])
 	glfwWindowHint(GLFW_DECORATED, GLFW_TRUE);
 
 	VkInstance lVulkanInstance = createInstance();
+
+	volkLoadInstance(lVulkanInstance);
+
+
 #ifdef _DEBUG
 	registerDebugMessenger(lVulkanInstance);
 #endif
@@ -709,6 +703,9 @@ int main(int argc, char* argv[])
 
 	// Create logical device
 	VkDevice lDevice = createDevice(lVulkanInstance, lPhysicalDevice, &lQueueFamilyIndex);
+
+	//VolkDeviceTable lVolkDeviceTable;
+	//volkLoadDeviceTable(&lVolkDeviceTable, lDevice);
 
 	// Retrieve the graphics queue
 	VkQueue lGraphicsQueue;
