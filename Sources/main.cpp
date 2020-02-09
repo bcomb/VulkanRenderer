@@ -1,14 +1,17 @@
-//#include <vulkan/vulkan.h>
-
 #include <assert.h>
 #include <malloc.h>
 #include <stdio.h>
+#include <vector>
 
 #include <volk.h>
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
+#include<meshoptimizer.h>
 
-#include <vector>
+
+#define FAST_OBJ_IMPLEMENTATION
+#include <../meshoptimizer/extern/fast_obj.h>
+
 
 #define VK_CHECK(call_) do { VkResult result_ = call_;	assert(result_ == VK_SUCCESS); } while(0);
 #define ARRAY_COUNT(array_) (sizeof(array_) / sizeof(array_[0]))
@@ -34,7 +37,14 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
 		? "[WARNING] "
 		: "[ERROR] ";
 
+
 	printf("%s%s\n", errorTypeStr, pCallbackData->pMessage);
+
+#if WIN32
+	// MSVC ouput
+	OutputDebugString(errorTypeStr); OutputDebugString(pCallbackData->pMessage); OutputDebugString("\n");
+#endif
+
 	if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
 		assert(!"ERROR");
 
@@ -49,7 +59,6 @@ void registerDebugMessenger(VkInstance pInstance)
 	createInfo.pfnUserCallback = debugCallback;
 	VK_CHECK(vkCreateDebugUtilsMessengerEXT(pInstance, &createInfo, nullptr, &gDebugMessenger));
 }
-
 
 void unregisterDebugMessenger(VkInstance pInstance, VkDebugUtilsMessengerEXT pDebugMessenger)
 {
@@ -364,6 +373,75 @@ VkFramebuffer createFramebuffer(VkDevice pDevice, VkRenderPass pRenderPass, VkIm
 	return framebuffer;
 }
 
+
+struct Vertex
+{
+	float px, py, pz;	// position
+	float nx, ny, nz;	// normal
+	float tu, tv;		// texture coord
+};
+
+struct Mesh
+{
+	std::vector<Vertex> vertices;
+	std::vector<uint32_t> indices;
+};
+
+bool loadMesh(Mesh& pMesh, const char* pPath)
+{
+	static_assert(sizeof(fastObjUInt) == sizeof(uint32_t),"typeid !=");
+
+	fastObjMesh* lMesh = fast_obj_read(pPath);
+	if (!lMesh)
+		return false;
+		
+	// Can be different of lMesh->face_count in case of Strip
+	size_t triangleCount = 0;
+	for (size_t i = 0; i < lMesh->face_count; ++i)
+		triangleCount += (lMesh->face_vertices[i] - 2); // Strip
+	pMesh.vertices.resize(3 * triangleCount);
+
+	size_t vertexOffset = 0;
+	size_t indexOffset = 0;
+	for (uint32_t i = 0; i < lMesh->face_count; ++i)
+	{
+		for (uint32_t j = 0; j < lMesh->face_vertices[i]; ++j)
+		{
+			fastObjIndex dataIndex = lMesh->indices[indexOffset + j];
+
+			// Strip triangulation on the fly
+			if (j >= 3)
+			{
+				pMesh.vertices[vertexOffset + 0] = pMesh.vertices[vertexOffset - 3];
+				pMesh.vertices[vertexOffset + 1] = pMesh.vertices[vertexOffset - 1];
+				vertexOffset += 2;
+			}
+			Vertex& v = pMesh.vertices[vertexOffset++];
+			v.px = lMesh->positions[dataIndex.p * 3 + 0];
+			v.py = lMesh->positions[dataIndex.p * 3 + 1];
+			v.pz = lMesh->positions[dataIndex.p * 3 + 2];
+			v.nx = lMesh->normals[dataIndex.n * 3 + 0];
+			v.ny = lMesh->normals[dataIndex.n * 3 + 1];
+			v.nz = lMesh->normals[dataIndex.n * 3 + 2];
+
+			v.tu = lMesh->texcoords[dataIndex.t * 3 + 0];
+			v.tv = lMesh->texcoords[dataIndex.t * 3 + 1];
+			//v.tz = lMesh->positions[dataIndex.t * 3 + 2];
+		}
+			
+		indexOffset += lMesh->face_vertices[i];
+	}
+	assert(vertexOffset == triangleCount * 3);
+	
+	// Generate useless indices
+	pMesh.indices.resize(triangleCount * 3);
+	for (int i = 0; i < triangleCount * 3; ++i)
+		pMesh.indices[i] = i;
+
+	fast_obj_destroy(lMesh);
+	return true;
+}
+
 VkShaderModule loadShader(VkDevice pDevice, const char* pFilename)
 {	
 	//char path[256];
@@ -413,7 +491,7 @@ VkPipelineLayout createPipelineLayout(VkDevice pDevice)
 	return layout;
 }
 
-VkPipeline createGraphicsPipeline(VkDevice pDevice, VkPipelineCache pPipelineCache, VkPipelineLayout pPipelineLayout, VkRenderPass pRenderPass, VkShaderModule pVertexShader, VkShaderModule pFragmentShader)
+VkPipeline createGraphicsPipeline(VkDevice pDevice, VkPipelineCache pPipelineCache, VkPipelineLayout pPipelineLayout, VkRenderPass pRenderPass, VkShaderModule pVertexShader, VkShaderModule pFragmentShader, VkPipelineVertexInputStateCreateInfo& pInputState)
 {
 	VkPipelineShaderStageCreateInfo stages[2] = {};
 	stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -429,12 +507,6 @@ VkPipeline createGraphicsPipeline(VkDevice pDevice, VkPipelineCache pPipelineCac
 	stages[1].module = pFragmentShader;
 	stages[1].pName = "main";
 
-	VkPipelineVertexInputStateCreateInfo vertexInput = { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
-	//VkPipelineVertexInputStateCreateFlags       flags;
-	//uint32_t                                    vertexBindingDescriptionCount;
-	//const VkVertexInputBindingDescription* pVertexBindingDescriptions;
-	//uint32_t                                    vertexAttributeDescriptionCount;
-	//const VkVertexInputAttributeDescription* pVertexAttributeDescriptions;
 
 	VkPipelineInputAssemblyStateCreateInfo inputAssembly = { VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO };
 	//VkPipelineInputAssemblyStateCreateFlags    flags;
@@ -512,7 +584,7 @@ VkPipeline createGraphicsPipeline(VkDevice pDevice, VkPipelineCache pPipelineCac
 	//VkPipelineCreateFlags                            flags;
 	createInfo.stageCount = ARRAY_COUNT(stages);
 	createInfo.pStages = stages;
-	createInfo.pVertexInputState = &vertexInput;
+	createInfo.pVertexInputState = &pInputState;
 	createInfo.pInputAssemblyState = &inputAssembly;
 	//const VkPipelineTessellationStateCreateInfo* pTessellationState;
 	createInfo.pViewportState = &viewportState;
@@ -668,11 +740,94 @@ void resizeSwapchain(Swapchain& pResult, VkSwapchainKHR pOldSwapChain, VkDevice 
 	Swapchain old = pResult;
 	createSwapchain(pResult, old.swapchain, pDevice, pSurface, pSurfaceFormat, pSurfaceCaps, pQueueFamilyIndex, pWidth, pHeight, pRequestSwapChainImage, pRenderPass);
 	VK_CHECK(vkDeviceWaitIdle(pDevice));
-	destroySwapchain(pDevice, old );
+	destroySwapchain(pDevice, old);
+}
+
+
+struct Buffer
+{
+	VkBuffer buffer;
+	VkDeviceMemory memory;
+
+	void* data;	// persistent map to cpu memory
+	size_t size;
+};
+
+
+uint32_t selectMemoryType(const VkPhysicalDeviceMemoryProperties& pPhysicalMemoryProperties, uint32_t memoryTypeFilter, VkMemoryPropertyFlags properties )
+{
+	// The VkPhysicalDeviceMemoryProperties structure has two arrays memoryTypes and memoryHeaps.
+	// Memory heaps are distinct memory resources like dedicated VRAM and swap space in RAM for when VRAM runs out.
+	// The different types of memory exist within these heaps.
+	uint32_t memoryTypeIndex = ~0u;
+	for (uint32_t i = 0; i < pPhysicalMemoryProperties.memoryTypeCount; ++i)
+	{
+		if ((memoryTypeFilter & (1 << i))
+			&& (pPhysicalMemoryProperties.memoryTypes[i].propertyFlags & properties) == properties)
+		{
+			memoryTypeIndex = i;
+			break;
+		}
+	}
+
+	assert(memoryTypeIndex != ~0u  && "give optional flag and try to be less restrictive on memory type");
+	return memoryTypeIndex;
+}
+
+void createBuffer(Buffer& result, VkDevice pDevice, const VkPhysicalDeviceMemoryProperties& pPhysicalMemoryProperties, size_t pSize, VkBufferUsageFlags pUsage, VkMemoryPropertyFlags properties)
+{
+	VkBufferCreateInfo createInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+	//VkBufferCreateFlags    flags;
+	createInfo.size = pSize;
+	createInfo.usage = pUsage;
+	createInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;	
+	//uint32_t               queueFamilyIndexCount;	// to fill if buffer is used in multiple queue families (VK_SHARING_MODE_CONCURRENT)
+	//const uint32_t* pQueueFamilyIndices;
+
+	VkBuffer buffer;
+	VK_CHECK(vkCreateBuffer(pDevice, &createInfo, nullptr, &buffer));
+
+	VkMemoryRequirements memoryRequirements = {};
+	vkGetBufferMemoryRequirements(pDevice, buffer, &memoryRequirements);
+
+	uint32_t memoryTypeIndex = selectMemoryType(pPhysicalMemoryProperties, memoryRequirements.memoryTypeBits, properties);
+
+	VkMemoryAllocateInfo allocateInfo = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
+	allocateInfo.allocationSize = memoryRequirements.size;
+	allocateInfo.memoryTypeIndex = memoryTypeIndex;
+	VkDeviceMemory memory = {};
+	VK_CHECK(vkAllocateMemory(pDevice, &allocateInfo, nullptr, &memory));
+
+	// Here we can bind multiple data on same buffer with different offset
+	// It is recommended practice to allocate bigger chunks of memory and assign parts of them to particular resources
+	// Functions that allocate memory blocks, reserve and return parts of them (VkDeviceMemory + offset + size) to the user
+	// check vmaAllocator for this job
+	VK_CHECK(vkBindBufferMemory(pDevice, buffer, memory, 0)); // If the offset is non-zero, then it is required to be divisible by memoryRequirements.alignment
+
+	void* data = 0;
+	// Persistent mapping
+	// https://gpuopen-librariesandsdks.github.io/VulkanMemoryAllocator/html/memory_mapping.html
+	// note: some AMD device have special chunk of memory with DEVICE_LOCAL + HOST_VISIBLE flags
+	VK_CHECK(vkMapMemory(pDevice, memory, 0ull, VK_WHOLE_SIZE, 0ull, &data));
+	//vkUnmapMemory(pDevice, memory); // for now we use persistent mapping
+
+	result.buffer = buffer;
+	result.memory = memory;
+	result.size = pSize;
+	result.data = data;
+}
+
+void destroyBuffer(VkDevice pDevice, const Buffer& pBuffer)
+{
+	// do we need to unmap?
+	//vkUnmapMemory(pDevice, pBuffer.memory); // for now we use persistent mapping
+
+	vkDestroyBuffer(pDevice, pBuffer.buffer, nullptr);
+	vkFreeMemory(pDevice, pBuffer.memory, nullptr);
 }
 
 // Entry point
-int main(int argc, char* argv[])
+int main(int argc, const char* argv[])
 {
 	VK_CHECK(volkInitialize());
 
@@ -726,6 +881,11 @@ int main(int argc, char* argv[])
 	VkSurfaceCapabilitiesKHR lSurfaceCaps;
 	VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(lPhysicalDevice, lSurface, &lSurfaceCaps));
 
+	// What kind of memory are available on this device
+	VkPhysicalDeviceMemoryProperties lPhysicalMemoryProperties;
+	vkGetPhysicalDeviceMemoryProperties(lPhysicalDevice, &lPhysicalMemoryProperties);
+
+	// Query device surface format available
 	uint32_t lFormatCount;
 	VK_CHECK(vkGetPhysicalDeviceSurfaceFormatsKHR(lPhysicalDevice, lSurface, &lFormatCount, nullptr));
 	VkSurfaceFormatKHR* lFormats = (VkSurfaceFormatKHR*)_alloca(lFormatCount * sizeof(VkSurfaceFormatKHR));	
@@ -747,23 +907,90 @@ int main(int argc, char* argv[])
 	createSwapchain(lSwapchain, VK_NULL_HANDLE, lDevice, lSurface, lSurfaceFormat, lSurfaceCaps, lQueueFamilyIndex, lWindowWidth, lWindowHeight, 2, lRenderPass);
 
 	
+	/*
 	VkShaderModule lVertexShader = loadShader(lDevice, "../../Shaders/triangle.vert.glsl.spv");
 	VkShaderModule lFragmentShader = loadShader(lDevice, "../../Shaders/triangle.frag.glsl.spv");
 
 
+	// No vb/ib, let it empty
+	VkPipelineVertexInputStateCreateInfo lTriangleVertexInputCreateInfo = { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
+	//uint32_t                                    vertexBindingDescriptionCount;
+	//const VkVertexInputBindingDescription* pVertexBindingDescriptions;
+	//uint32_t                                    vertexAttributeDescriptionCount;
+	//const VkVertexInputAttributeDescription* pVertexAttributeDescriptions;
+
 	VkPipelineLayout lTriangleLayout = createPipelineLayout(lDevice);
-
 	VkPipelineCache lPipelineCache = 0;
-	VkPipeline lTrianglePipeline = createGraphicsPipeline(lDevice, lPipelineCache, lTriangleLayout, lRenderPass, lVertexShader, lFragmentShader);
+	VkPipeline lTrianglePipeline = createGraphicsPipeline(lDevice, lPipelineCache, lTriangleLayout, lRenderPass, lVertexShader, lFragmentShader, lTriangleVertexInputCreateInfo);
+	*/
 
 
-	// GraphicsPipeline
-	// VS/FS program
-	// VertexInputLayout
-	// FixedState (Blend/Rasterizer)
 
-	// Compile GLSL to spirv
+	// Create need mesh ressources
+	Mesh lMesh;
+	bool lResult = loadMesh(lMesh, R"path(F:\Data\Models\stanford\bunny.obj)path");
+	//bool lResult = loadMesh(lMesh, R"path(F:\Data\Models\stanford\kitten.obj)path");
+	//bool lResult = loadMesh(lMesh, R"path(F:\Data\Models\stanford\debug.obj)path");
 
+	// TODO : a stage buffer to copy data from CPU to GPU(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT ) memory trough vkCmdCopyBuffer
+	// At the moment
+	size_t lChunkSize = 128 * 1024 * 1024;
+	Buffer lMeshVertexBuffer = {};
+	createBuffer(lMeshVertexBuffer, lDevice, lPhysicalMemoryProperties, lChunkSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+	Buffer lMeshIndexBuffer = {};
+	createBuffer(lMeshIndexBuffer, lDevice, lPhysicalMemoryProperties, lChunkSize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+	memcpy(lMeshVertexBuffer.data, (void*)lMesh.vertices.data(), lMesh.vertices.size() * sizeof(Vertex));
+	memcpy(lMeshIndexBuffer.data, (void*)lMesh.indices.data(), lMesh.indices.size() * sizeof(uint32_t));
+
+
+	VkVertexInputBindingDescription binding = { 0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX };
+	VkVertexInputAttributeDescription attrs[3] = {};
+	// 3 float position
+	attrs[0].location = 0;
+	attrs[0].binding = 0;
+	attrs[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+	attrs[0].offset = 0;
+
+	// 3 float normal
+	attrs[1].location = 1;
+	attrs[1].binding = 0;
+	attrs[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+	attrs[1].offset = attrs[0].offset + 3 * sizeof(float);
+
+	// 2 float tex coorrd
+	attrs[2].location = 2;
+	attrs[2].binding = 0;
+	attrs[2].format = VK_FORMAT_R32G32_SFLOAT;
+	attrs[2].offset = attrs[1].offset + 3 * sizeof(float);
+
+	VkPipelineVertexInputStateCreateInfo lMeshVertexInputCreateInfo = { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
+	//lMeshVertexInputCreateInfo.flags;
+	lMeshVertexInputCreateInfo.vertexBindingDescriptionCount = 1;
+	lMeshVertexInputCreateInfo.pVertexBindingDescriptions = &binding;
+	lMeshVertexInputCreateInfo.vertexAttributeDescriptionCount = 3;
+	lMeshVertexInputCreateInfo.pVertexAttributeDescriptions = attrs;
+
+	VkShaderModule lMeshVertexShader = loadShader(lDevice, "../../Shaders/mesh.vert.glsl.spv");
+	VkShaderModule lMeshFragmentShader = loadShader(lDevice, "../../Shaders/mesh.frag.glsl.spv");
+
+	// For uniform?
+	VkPipelineLayoutCreateInfo meshLayoutCreateInfo = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
+	//VkPipelineLayoutCreateFlags     flags;
+	//uint32_t                        setLayoutCount;
+	//const VkDescriptorSetLayout* pSetLayouts;
+	//uint32_t                        pushConstantRangeCount;
+	//const VkPushConstantRange* pPushConstantRanges;
+
+	VkPipelineLayout lMeshLayout;
+	VK_CHECK(vkCreatePipelineLayout(lDevice, &meshLayoutCreateInfo, nullptr, &lMeshLayout));
+
+	VkPipeline lMeshPipeline;
+	VkPipelineCache lPipelineCache = 0; // TODO : learn that
+	lMeshPipeline = createGraphicsPipeline(lDevice, lPipelineCache, lMeshLayout, lRenderPass, lMeshVertexShader, lMeshFragmentShader, lMeshVertexInputCreateInfo);
+
+	//VkPipelineLayout lTriangleLayout = createPipelineLayout(lDevice);
+	//VkPipelineCache lPipelineCache = 0;
 
 
 	VkSemaphore lAcquireSemaphore = createSemaphore(lDevice);
@@ -838,8 +1065,15 @@ int main(int argc, char* argv[])
 		vkCmdSetScissor(lCommandBuffers[lCommandBufferIndex], 0, 1, &scissor);
 
 		// Draw stuff here
-		vkCmdBindPipeline(lCommandBuffers[lCommandBufferIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, lTrianglePipeline);
-		vkCmdDraw(lCommandBuffers[lCommandBufferIndex], 3, 1, 0, 0);
+		//vkCmdBindPipeline(lCommandBuffers[lCommandBufferIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, lTrianglePipeline);
+		//vkCmdDraw(lCommandBuffers[lCommandBufferIndex], 3, 1, 0, 0);
+
+		vkCmdBindPipeline(lCommandBuffers[lCommandBufferIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, lMeshPipeline);
+		VkDeviceSize dummyOffset = 0;
+		vkCmdBindVertexBuffers(lCommandBuffers[lCommandBufferIndex], 0, 1, &lMeshVertexBuffer.buffer, &dummyOffset);
+		vkCmdBindIndexBuffer(lCommandBuffers[lCommandBufferIndex], lMeshIndexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+		vkCmdDrawIndexed(lCommandBuffers[lCommandBufferIndex], (uint32_t)lMesh.indices.size(), 1, 0, 0, 0);
+
 
 		//VkImageMemoryBarrier presentBarrier = imageBarrier(lSwapChainImages[lImageIndex], 0, 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 		//vkCmdPipelineBarrier(lCommandBuffer, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, 0, 0, 0, 1, &presentBarrier);
@@ -881,12 +1115,19 @@ int main(int argc, char* argv[])
 
 	destroySwapchain(lDevice, lSwapchain);
 
-	vkDestroyPipeline(lDevice, lTrianglePipeline, nullptr);
+	//vkDestroyPipeline(lDevice, lTrianglePipeline, nullptr);
+	//vkDestroyPipelineLayout(lDevice, lTriangleLayout, nullptr);
+	//vkDestroyShaderModule(lDevice, lVertexShader, nullptr);
+	//vkDestroyShaderModule(lDevice, lFragmentShader, nullptr);
 
-	vkDestroyPipelineLayout(lDevice, lTriangleLayout, nullptr);
+	vkDestroyPipeline(lDevice, lMeshPipeline, nullptr);
+	vkDestroyPipelineLayout(lDevice, lMeshLayout, nullptr);
+	vkDestroyShaderModule(lDevice, lMeshVertexShader, nullptr);
+	vkDestroyShaderModule(lDevice, lMeshFragmentShader, nullptr);
 
-	vkDestroyShaderModule(lDevice, lVertexShader, nullptr);
-	vkDestroyShaderModule(lDevice, lFragmentShader, nullptr);
+	destroyBuffer(lDevice, lMeshVertexBuffer);
+	destroyBuffer(lDevice, lMeshIndexBuffer);
+
 
 	vkDestroyRenderPass(lDevice, lRenderPass, nullptr);
 
