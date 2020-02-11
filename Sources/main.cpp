@@ -173,6 +173,7 @@ VkSwapchainKHR createSwapchain(VkDevice pDevice, VkSurfaceKHR pSurface, VkSurfac
 	lSwapchainInfo.pQueueFamilyIndices = &pFamilyIndex;
 	lSwapchainInfo.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
 	lSwapchainInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;  //VK_PRESENT_MODE_MAILBOX_KHR, tiled device?
+	//lSwapchainInfo.presentMode = VK_PRESENT_MODE_IMMEDIATE_KHR; // no vsync?
 	// The compositeAlpha field specifies if the alpha channel should be used for blending with other windows in the window system.You'll almost always want to simply ignore the alpha channel, hence VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR
 	lSwapchainInfo.compositeAlpha = surfaceCompositeAlpha;
 	lSwapchainInfo.oldSwapchain = pOldSwapChain;
@@ -196,12 +197,27 @@ bool findQueueFamilyIndex(VkPhysicalDevice pDevice, uint32_t* pQueueFamilyIndex 
 		if (lQueueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
 		{
 			*pQueueFamilyIndex = i;
+
+			assert(lQueueFamilies[i].timestampValidBits != 0); // can't use vkCmdWriteTimestamp
 			return true;
 		}
 	}
 
 	assert(false);
 	return false;
+}
+
+VkQueryPool createQueryPool(VkDevice pDevice, uint32_t pQueryCount)
+{
+	VkQueryPoolCreateInfo createInfo = { VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO };
+	//VkQueryPoolCreateFlags           flags;
+	createInfo.queryType = VK_QUERY_TYPE_TIMESTAMP;
+	createInfo.queryCount = pQueryCount;
+	//VkQueryPipelineStatisticFlags    pipelineStatistics;
+
+	VkQueryPool query;
+	VK_CHECK(vkCreateQueryPool(pDevice, &createInfo, nullptr, &query));
+	return query;
 }
 
 VkDevice createDevice(VkInstance pInstance, VkPhysicalDevice pPhysicalDevice, uint32_t* pFamilyIndex)
@@ -437,6 +453,14 @@ bool loadMesh(Mesh& pMesh, const char* pPath)
 	pMesh.indices.resize(triangleCount * 3);
 	for (int i = 0; i < triangleCount * 3; ++i)
 		pMesh.indices[i] = i;
+
+	/*
+	if (1)
+	{
+		// Test meshoptimizer
+		std::vector<uint32_t> remap(triangleCount * 3);
+	}
+	*/
 
 	fast_obj_destroy(lMesh);
 	return true;
@@ -852,6 +876,10 @@ int main(int argc, const char* argv[])
 	VK_CHECK(vkEnumeratePhysicalDevices(lVulkanInstance, &lPhysicalDevicesCount, lPhysicalDevices));
 	VkPhysicalDevice lPhysicalDevice = pickPhysicalDevice(lPhysicalDevicesCount, lPhysicalDevices);
 
+	VkPhysicalDeviceProperties lPhysicalDeviceProps = {};
+	vkGetPhysicalDeviceProperties(lPhysicalDevice, &lPhysicalDeviceProps);
+
+
 	// Find a graphics capable queue
 	uint32_t lQueueFamilyIndex = 0;
 	findQueueFamilyIndex(lPhysicalDevice, &lQueueFamilyIndex);
@@ -934,7 +962,7 @@ int main(int argc, const char* argv[])
 
 	// TODO : a stage buffer to copy data from CPU to GPU(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT ) memory trough vkCmdCopyBuffer
 	// At the moment
-	size_t lChunkSize = 128 * 1024 * 1024;
+	size_t lChunkSize = 16 * 1024 * 1024;
 	Buffer lMeshVertexBuffer = {};
 	createBuffer(lMeshVertexBuffer, lDevice, lPhysicalMemoryProperties, lChunkSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 	Buffer lMeshIndexBuffer = {};
@@ -1012,11 +1040,21 @@ int main(int argc, const char* argv[])
 	{
 		lCommandBufferFences[i] = createFence(lDevice);
 	}
+
+	uint32_t lQueryCount = 16;
+	VkQueryPool lTimeStampQueries = createQueryPool(lDevice, lQueryCount);
 	
+
+	uint64_t frameCount = 0;
+	double cpuTotalTime = 0.0;
+	uint64_t gpuTotalTime = 0;
+	double cpuTimeAvg = 0;
+
 	// MainLoop
 	uint32_t lCommandBufferIndex = COMMAND_BUFFER_COUNT-1;
 	while (!glfwWindowShouldClose(lWindow))
 	{
+		double cpuFrameBegin = glfwGetTime() * 1000.0;
 		glfwPollEvents();
 
 		int lNewWindowWidth = 0, lNewWindowHeight = 0;
@@ -1042,6 +1080,9 @@ int main(int argc, const char* argv[])
 		lBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 		VK_CHECK(vkBeginCommandBuffer(lCommandBuffers[lCommandBufferIndex], &lBeginInfo));
 
+		vkCmdResetQueryPool(lCommandBuffers[lCommandBufferIndex], lTimeStampQueries, 0, lQueryCount);
+		vkCmdWriteTimestamp(lCommandBuffers[lCommandBufferIndex], VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, lTimeStampQueries, 0);
+		//vkCmdBeginQuery()
 		VkClearValue lClearColor = { 0.3f, 0.2f, 0.3f, 1.0f };
 
 		VkRenderPassBeginInfo renderPassInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
@@ -1079,6 +1120,8 @@ int main(int argc, const char* argv[])
 		//vkCmdPipelineBarrier(lCommandBuffer, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, 0, 0, 0, 1, &presentBarrier);
 
 		vkCmdEndRenderPass(lCommandBuffers[lCommandBufferIndex]);
+
+		vkCmdWriteTimestamp(lCommandBuffers[lCommandBufferIndex], VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, lTimeStampQueries, 1);
 		VK_CHECK(vkEndCommandBuffer(lCommandBuffers[lCommandBufferIndex]));
 
 
@@ -1105,6 +1148,33 @@ int main(int argc, const char* argv[])
 
 		// TODO : Barrier/Fence on CommandBuffer or DoubleBuffered CommandBuffer with sync ?
 		//VK_CHECK(vkDeviceWaitIdle(lDevice));
+
+
+		++frameCount;
+		VkPerformanceCounterResultKHR queryResults[2] = {};
+		vkGetQueryPoolResults(lDevice, lTimeStampQueries, 0, 2, sizeof(queryResults), queryResults, sizeof(queryResults[0]), VK_QUERY_RESULT_64_BIT /*| VK_QUERY_RESULT_WAIT_BIT*/);
+
+		double gpuFrameBegin = double(queryResults[0].uint64) * lPhysicalDeviceProps.limits.timestampPeriod * 1e-6; // ms
+		double gpuFrameEnd = double(queryResults[1].uint64) * lPhysicalDeviceProps.limits.timestampPeriod * 1e-6;
+
+		double cpuFrameEnd = glfwGetTime() * 1000.0; // ms
+		cpuTotalTime += cpuFrameEnd - cpuFrameBegin;
+		gpuTotalTime += (queryResults[1].uint64 - queryResults[0].uint64);
+		double cpuTimeAvg = 0;
+
+		if(cpuTotalTime > 1000.0f)
+		{
+			double avgCpu = cpuTotalTime / frameCount;
+			double avgGpu = (double(gpuTotalTime) * lPhysicalDeviceProps.limits.timestampPeriod * 1e-6) / frameCount;
+
+			char title[256];
+			sprintf(title, "cpu=%.1f ms; gpu: %.1f ms", avgCpu, avgGpu);
+			glfwSetWindowTitle(lWindow, title);
+
+			cpuTotalTime = 0;
+			gpuTotalTime = 0;
+			frameCount = 0;			
+		}
 	}
 	
 	VK_CHECK(vkDeviceWaitIdle(lDevice));
@@ -1137,6 +1207,7 @@ int main(int argc, const char* argv[])
 	for (int i = 0; i < ARRAY_COUNT(lCommandBufferFences); ++i)
 		vkDestroyFence(lDevice, lCommandBufferFences[i], nullptr);
 
+	vkDestroyQueryPool(lDevice, lTimeStampQueries, nullptr);
 
 	vkDestroySurfaceKHR(lVulkanInstance, lSurface, nullptr);
 
