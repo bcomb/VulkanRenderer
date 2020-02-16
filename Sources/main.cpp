@@ -7,7 +7,7 @@
 #include <volk.h>
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
-#include<meshoptimizer.h>
+#include <meshoptimizer.h>
 
 
 #define FAST_OBJ_IMPLEMENTATION
@@ -21,8 +21,21 @@
 // Automatically destroyed when exit function
 #define STACK_ALLOC(TYPE_,COUNT_) (TYPE_*)_alloca(sizeof(TYPE_) * COUNT_)
 
-VkDebugUtilsMessengerEXT gDebugMessenger;
+/******************************************************************************/
+/******************************************************************************/
+/******************************************************************************/
 
+// Struct define 'per object'
+struct alignas(16) UniformBufferObject
+{
+	float proj[16];
+	float view[16];
+	float model[16];
+	float color[4];
+};
+
+/******************************************************************************/
+VkDebugUtilsMessengerEXT gDebugMessenger;
 static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
 	VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
 	VkDebugUtilsMessageTypeFlagsEXT messageType,
@@ -1076,11 +1089,95 @@ int main(int argc, const char* argv[])
 	VkShaderModule lMeshVertexShader = loadShader(lDevice, "../../Shaders/mesh.vert.glsl.spv");
 	VkShaderModule lMeshFragmentShader = loadShader(lDevice, "../../Shaders/mesh.frag.glsl.spv");
 
+
+
+	// HERE DESCRIPTOR LABOR BEGIN
+
+
 	// For uniform?
+	VkDescriptorSetLayoutBinding uboLayoutBinding = {};
+	uboLayoutBinding.binding = 0;
+	uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	uboLayoutBinding.descriptorCount = 1;
+	uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT; // VK_SHADER_STAGE_ALL_GRAPHICS (opengl fashion?)
+	uboLayoutBinding.pImmutableSamplers = nullptr; // Optional The pImmutableSamplers field is only relevant for image sampling related descriptors
+
+	VkDescriptorSetLayoutCreateInfo layoutInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+	layoutInfo.bindingCount = 1;
+	layoutInfo.pBindings = &uboLayoutBinding;
+
+	// Double buffered
+	// TODO : as an exercise, allocate Only one UBO and use offset
+	std::vector<Buffer> uniformBuffers(lSwapchainImageCount);
+	for (uint32_t i = 0; i < lSwapchainImageCount; ++i)
+	{
+		createBuffer(uniformBuffers[i], lDevice, lPhysicalMemoryProperties, sizeof(UniformBufferObject), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT /*| VK_MEMORY_PROPERTY_HOST_COHERENT_BIT*/);
+		((UniformBufferObject*)uniformBuffers[i].data)->color[0] = 1.0f;
+		((UniformBufferObject*)uniformBuffers[i].data)->color[1] = 0.0f;
+		((UniformBufferObject*)uniformBuffers[i].data)->color[2] = 0.0f;
+		((UniformBufferObject*)uniformBuffers[i].data)->color[3] = 1.0f;
+	}
+
+	VkDescriptorSetLayout descriptorSetLayout;
+	VK_CHECK(vkCreateDescriptorSetLayout(lDevice, &layoutInfo, nullptr, &descriptorSetLayout));
+
+	// HERE we need to created pool of each kind of desciptor type (UBO/SBO/constant look at VkDescriptorType)
+	// And for each SwapChainImage for double buffer (not sure????)
+	VkDescriptorPoolSize poolSize = {};
+	poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	poolSize.descriptorCount = static_cast<uint32_t>(lSwapchainImageCount);
+
+	VkDescriptorPoolCreateInfo poolInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+	//The structure has an optional flag similar to command pools that determines if individual descriptor sets can be freed or not: VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT.
+	// We're not going to touch the descriptor set after creating it, so we don't need this flag.You can leave flags to its default value of 0.
+	//VkDescriptorPoolCreateFlags    flags;
+	poolInfo.maxSets = lSwapchainImageCount; // can't access the same set from multiple CommandBuffer? creater one for each CommandBuffer
+	poolInfo.poolSizeCount = 1;
+	poolInfo.pPoolSizes = &poolSize;
+
+	VkDescriptorPool descriptorPool;
+	VK_CHECK(vkCreateDescriptorPool(lDevice, &poolInfo, nullptr, &descriptorPool));
+
+	// In our case we will create one descriptor set for each swap chain image, all with the same layout.
+	// Unfortunately we do need all the copies of the layout because the next function expects an array matching the number of sets.
+	std::vector<VkDescriptorSetLayout> layouts(lSwapchainImageCount, descriptorSetLayout);
+	VkDescriptorSetAllocateInfo allocInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+	allocInfo.descriptorPool = descriptorPool;
+	allocInfo.descriptorSetCount = lSwapchainImageCount;
+	allocInfo.pSetLayouts = layouts.data();
+
+	std::vector<VkDescriptorSet> descriptorSets;
+	descriptorSets.resize(lSwapchainImageCount);
+	VK_CHECK(vkAllocateDescriptorSets(lDevice, &allocInfo, descriptorSets.data()));
+
+	for (size_t i = 0; i < lSwapchainImageCount; i++) {
+		VkDescriptorBufferInfo bufferInfo = {};
+		bufferInfo.buffer = uniformBuffers[i].buffer;
+		bufferInfo.offset = 0;
+		bufferInfo.range = sizeof(UniformBufferObject);
+
+
+		VkWriteDescriptorSet descriptorWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+		descriptorWrite.dstSet = descriptorSets[i];
+		descriptorWrite.dstBinding = 0;
+		descriptorWrite.dstArrayElement = 0;
+		descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		descriptorWrite.descriptorCount = 1;
+		descriptorWrite.pBufferInfo = &bufferInfo;
+		descriptorWrite.pImageInfo = nullptr; // Optional
+		descriptorWrite.pTexelBufferView = nullptr; // Optional
+
+		vkUpdateDescriptorSets(lDevice, 1, &descriptorWrite, 0, nullptr);
+	}
+
+
+	// HERE DESCRIPTOR LABOR END
+
+
 	VkPipelineLayoutCreateInfo meshLayoutCreateInfo = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
 	//VkPipelineLayoutCreateFlags     flags;
-	//uint32_t                        setLayoutCount;
-	//const VkDescriptorSetLayout* pSetLayouts;
+	meshLayoutCreateInfo.setLayoutCount = 1;
+	meshLayoutCreateInfo.pSetLayouts = &descriptorSetLayout;
 	//uint32_t                        pushConstantRangeCount;
 	//const VkPushConstantRange* pPushConstantRanges;
 
@@ -1172,7 +1269,6 @@ int main(int argc, const char* argv[])
 		// barrier not needed, LayoutTransition are done during BeginRenderPass/EndRenderPass
 		//VkImageMemoryBarrier renderBeginBarrier = imageBarrier(lSwapChainImages[lImageIndex], VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 		//vkCmdPipelineBarrier(lCommandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, 0, 0, 0, 1, &renderBeginBarrier);
-
 		vkCmdBeginRenderPass(lCommandBuffers[lCommandBufferIndex], &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
 		VkViewport viewport = { 0.0f, 0.0f,(float)lWindowWidth, (float)lWindowHeight, 0.0f, 1.0f };
@@ -1182,17 +1278,31 @@ int main(int argc, const char* argv[])
 		VkRect2D scissor = { {0,0}, {(uint32_t)lWindowWidth,(uint32_t)lWindowHeight} };
 		vkCmdSetScissor(lCommandBuffers[lCommandBufferIndex], 0, 1, &scissor);
 
-		// Draw stuff here
-		//vkCmdBindPipeline(lCommandBuffers[lCommandBufferIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, lTrianglePipeline);
-		//vkCmdDraw(lCommandBuffers[lCommandBufferIndex], 3, 1, 0, 0);
-
+		// Draw
 		vkCmdBindPipeline(lCommandBuffers[lCommandBufferIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, lMeshPipeline);
 		VkDeviceSize dummyOffset = 0;
 		vkCmdBindVertexBuffers(lCommandBuffers[lCommandBufferIndex], 0, 1, &lMeshVertexBuffer.buffer, &dummyOffset);
 		vkCmdBindIndexBuffer(lCommandBuffers[lCommandBufferIndex], lMeshIndexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
 
-		for(int i=0; i< 100; ++i)
+		vkCmdBindDescriptorSets(lCommandBuffers[lCommandBufferIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, lMeshLayout, 0, 1, &descriptorSets[lCommandBufferIndex], 0, nullptr);
+
+		// Test, should i have to use vkFlushMappedMemoryRanges?. or it's not necessary with COHERENT MEMORY
+		((UniformBufferObject*)uniformBuffers[lCommandBufferIndex].data)->color[0] = lCommandBufferIndex == 0 ? (rand() / float(RAND_MAX)) : 1.0f;
+		((UniformBufferObject*)uniformBuffers[lCommandBufferIndex].data)->color[1] = lCommandBufferIndex == 1 ? (rand() / float(RAND_MAX)) : 1.0f;
+		((UniformBufferObject*)uniformBuffers[lCommandBufferIndex].data)->color[2] = 0.0f;
+		((UniformBufferObject*)uniformBuffers[lCommandBufferIndex].data)->color[3] = 1.0f;
+		/* Don't needed as UBO are HOST_VISIBLE
+		VkMappedMemoryRange range = { VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE };
+		range.memory = uniformBuffers[lCommandBufferIndex].memory;
+		range.offset = 0;
+		range.size = VK_WHOLE_SIZE;
+		VK_CHECK(vkFlushMappedMemoryRanges(lDevice, 1, &range)); // probably a bad idea to do that in Begin/EndRenderpass
+		*/
+
+		for (int i = 0; i < 100; ++i)
+		{
 			vkCmdDrawIndexed(lCommandBuffers[lCommandBufferIndex], (uint32_t)lMesh.indices.size(), 1, 0, 0, 0);
+		}
 
 
 		//VkImageMemoryBarrier presentBarrier = imageBarrier(lSwapChainImages[lImageIndex], 0, 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
@@ -1260,6 +1370,10 @@ int main(int argc, const char* argv[])
 
 	// TODO : destroy ressources
 
+	vkDestroyDescriptorPool(lDevice, descriptorPool, nullptr);
+
+	vkDestroyDescriptorSetLayout(lDevice, descriptorSetLayout, nullptr);
+
 	vkDestroyCommandPool(lDevice, lCommandPool, nullptr);
 
 	destroySwapchain(lDevice, lSwapchain);
@@ -1276,8 +1390,10 @@ int main(int argc, const char* argv[])
 
 	destroyBuffer(lDevice, lMeshVertexBuffer);
 	destroyBuffer(lDevice, lMeshIndexBuffer);
-
 	destroyBuffer(lDevice, lStageBuffer);
+
+	for (int i = 0; i < uniformBuffers.size(); ++i)
+		destroyBuffer(lDevice, uniformBuffers[i]);
 
 
 	vkDestroyRenderPass(lDevice, lRenderPass, nullptr);
