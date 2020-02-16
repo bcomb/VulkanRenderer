@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <malloc.h>
 #include <stdio.h>
+#include <algorithm>
 #include <vector>
 
 #include <volk.h>
@@ -448,19 +449,34 @@ bool loadMesh(Mesh& pMesh, const char* pPath)
 		indexOffset += lMesh->face_vertices[i];
 	}
 	assert(vertexOffset == triangleCount * 3);
-	
+
 	// Generate useless indices
 	pMesh.indices.resize(triangleCount * 3);
 	for (int i = 0; i < triangleCount * 3; ++i)
 		pMesh.indices[i] = i;
 
-	/*
-	if (1)
+
+	std::vector<uint32_t> remap(triangleCount * 3);
+	size_t lVertexCount = meshopt_generateVertexRemap(remap.data(), 0, remap.size(), pMesh.vertices.data(), remap.size(), sizeof(Vertex));
+	std::vector<Vertex> opt_vertices(lVertexCount);
+	std::vector<uint32_t> opt_indices(triangleCount * 3);
+	meshopt_remapVertexBuffer(opt_vertices.data(), pMesh.vertices.data(), pMesh.vertices.size(), sizeof(Vertex), remap.data());
+	meshopt_remapIndexBuffer(opt_indices.data(), pMesh.indices.data(), pMesh.indices.size(), remap.data());
+
+	// Test cache optimizer
+	// random triangle order
+	//struct Triangle { uint32_t i[3]; };
+	//std::random_shuffle((Triangle*)opt_indices.data(), (Triangle*)(opt_indices.data() + opt_indices.size()));
+
+	if
+		(1)
 	{
-		// Test meshoptimizer
-		std::vector<uint32_t> remap(triangleCount * 3);
+		meshopt_optimizeVertexCache(opt_indices.data(), opt_indices.data(), opt_indices.size(), opt_vertices.size());
+		meshopt_optimizeVertexFetch(opt_vertices.data(), opt_indices.data(), opt_indices.size(), opt_vertices.data(), opt_vertices.size(), sizeof(Vertex));
 	}
-	*/
+
+	std::swap(opt_vertices, pMesh.vertices);
+	std::swap(opt_indices, pMesh.indices);
 
 	fast_obj_destroy(lMesh);
 	return true;
@@ -650,6 +666,21 @@ VkImageMemoryBarrier imageBarrier(VkImage pImage,
 	barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;	// Seem android have bug with this constant
 	barrier.subresourceRange.baseArrayLayer = 0;
 	barrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
+
+	return barrier;
+}
+
+VkBufferMemoryBarrier bufferBarrier(VkBuffer pBuffer, VkAccessFlags pSrcAccessMask, VkAccessFlags pDstAccessMask)
+{
+	VkBufferMemoryBarrier barrier = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
+	barrier.srcAccessMask = pSrcAccessMask;
+	barrier.dstAccessMask = pDstAccessMask;
+	// TODO : check GraphicsQueueIndex == TransfertQueueIndex
+	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;;
+	barrier.buffer = pBuffer;
+	barrier.offset = 0;
+	barrier.size = VK_WHOLE_SIZE;
 
 	return barrier;
 }
@@ -850,9 +881,7 @@ void uploadBuffer(VkDevice pDevice, VkCommandPool pCommandPool, VkCommandBuffer 
 	memcpy(pSrc.data, pData, pSize);
 	
 	VK_CHECK(vkResetCommandPool(pDevice, pCommandPool, 0));
-
 	VK_CHECK(vkResetCommandBuffer(pCommandBuffer, 0));
-
 
 	VkCommandBufferBeginInfo lBeginInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
 	lBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -861,18 +890,8 @@ void uploadBuffer(VkDevice pDevice, VkCommandPool pCommandPool, VkCommandBuffer 
 	VkBufferCopy regions = { 0, 0, VkDeviceSize(pSize) };
 	vkCmdCopyBuffer(pCommandBuffer, pSrc.buffer, pDst.buffer, 1, &regions);
 
-	VkBufferMemoryBarrier copyBufferBarrier = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
-	copyBufferBarrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
-	copyBufferBarrier.dstAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
-	// TODO : check GraphicsQueueIndex == TransfertQueueIndex
-	copyBufferBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	copyBufferBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;;
-	copyBufferBarrier.buffer = pDst.buffer;
-	copyBufferBarrier.offset = 0;
-	copyBufferBarrier.size = VkDeviceSize(pSize);
-
+	VkBufferMemoryBarrier copyBufferBarrier = bufferBarrier(pDst.buffer, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT);
 	vkCmdPipelineBarrier(pCommandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 1, &copyBufferBarrier, 0, nullptr);
-
 
 	VK_CHECK(vkEndCommandBuffer(pCommandBuffer));
 
@@ -1009,8 +1028,8 @@ int main(int argc, const char* argv[])
 
 	// Create need mesh ressources
 	Mesh lMesh;
-	bool lResult = loadMesh(lMesh, R"path(F:\Data\Models\stanford\bunny.obj)path");
-	//bool lResult = loadMesh(lMesh, R"path(F:\Data\Models\stanford\kitten.obj)path");
+	//bool lResult = loadMesh(lMesh, R"path(F:\Data\Models\stanford\bunny.obj)path");
+	bool lResult = loadMesh(lMesh, R"path(F:\Data\Models\stanford\kitten.obj)path");
 	//bool lResult = loadMesh(lMesh, R"path(F:\Data\Models\stanford\debug.obj)path");
 
 
@@ -1171,7 +1190,9 @@ int main(int argc, const char* argv[])
 		VkDeviceSize dummyOffset = 0;
 		vkCmdBindVertexBuffers(lCommandBuffers[lCommandBufferIndex], 0, 1, &lMeshVertexBuffer.buffer, &dummyOffset);
 		vkCmdBindIndexBuffer(lCommandBuffers[lCommandBufferIndex], lMeshIndexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-		vkCmdDrawIndexed(lCommandBuffers[lCommandBufferIndex], (uint32_t)lMesh.indices.size(), 1, 0, 0, 0);
+
+		for(int i=0; i< 100; ++i)
+			vkCmdDrawIndexed(lCommandBuffers[lCommandBufferIndex], (uint32_t)lMesh.indices.size(), 1, 0, 0, 0);
 
 
 		//VkImageMemoryBarrier presentBarrier = imageBarrier(lSwapChainImages[lImageIndex], 0, 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
