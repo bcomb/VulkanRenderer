@@ -184,7 +184,7 @@ VkSwapchainKHR createSwapchain(VkDevice pDevice, VkSurfaceKHR pSurface, VkSurfac
 }
 
 // Find a queue that support graphics operation
-bool findQueueFamilyIndex(VkPhysicalDevice pDevice, uint32_t* pQueueFamilyIndex )
+bool findQueueFamilyIndex(VkPhysicalDevice pDevice, uint32_t* pQueueFamilyIndex, VkQueueFlags pFlags )
 {
 	uint32_t lQueueFamilyCount = 0;
 	vkGetPhysicalDeviceQueueFamilyProperties(pDevice, &lQueueFamilyCount, nullptr);
@@ -194,7 +194,7 @@ bool findQueueFamilyIndex(VkPhysicalDevice pDevice, uint32_t* pQueueFamilyIndex 
 
 	for (uint32_t i = 0; i < lQueueFamilyCount; ++i)
 	{
-		if (lQueueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
+		if (lQueueFamilies[i].queueFlags & pFlags)
 		{
 			*pQueueFamilyIndex = i;
 
@@ -798,7 +798,7 @@ uint32_t selectMemoryType(const VkPhysicalDeviceMemoryProperties& pPhysicalMemor
 	return memoryTypeIndex;
 }
 
-void createBuffer(Buffer& result, VkDevice pDevice, const VkPhysicalDeviceMemoryProperties& pPhysicalMemoryProperties, size_t pSize, VkBufferUsageFlags pUsage, VkMemoryPropertyFlags properties)
+void createBuffer(Buffer& result, VkDevice pDevice, const VkPhysicalDeviceMemoryProperties& pPhysicalMemoryProperties, size_t pSize, VkBufferUsageFlags pUsage, VkMemoryPropertyFlags pProperties)
 {
 	VkBufferCreateInfo createInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
 	//VkBufferCreateFlags    flags;
@@ -814,7 +814,7 @@ void createBuffer(Buffer& result, VkDevice pDevice, const VkPhysicalDeviceMemory
 	VkMemoryRequirements memoryRequirements = {};
 	vkGetBufferMemoryRequirements(pDevice, buffer, &memoryRequirements);
 
-	uint32_t memoryTypeIndex = selectMemoryType(pPhysicalMemoryProperties, memoryRequirements.memoryTypeBits, properties);
+	uint32_t memoryTypeIndex = selectMemoryType(pPhysicalMemoryProperties, memoryRequirements.memoryTypeBits, pProperties);
 
 	VkMemoryAllocateInfo allocateInfo = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
 	allocateInfo.allocationSize = memoryRequirements.size;
@@ -829,16 +829,62 @@ void createBuffer(Buffer& result, VkDevice pDevice, const VkPhysicalDeviceMemory
 	VK_CHECK(vkBindBufferMemory(pDevice, buffer, memory, 0)); // If the offset is non-zero, then it is required to be divisible by memoryRequirements.alignment
 
 	void* data = 0;
-	// Persistent mapping
+	// Here we do Persistent mapping (only if flag HOST_VISIBLE is present)
 	// https://gpuopen-librariesandsdks.github.io/VulkanMemoryAllocator/html/memory_mapping.html
 	// note: some AMD device have special chunk of memory with DEVICE_LOCAL + HOST_VISIBLE flags
-	VK_CHECK(vkMapMemory(pDevice, memory, 0ull, VK_WHOLE_SIZE, 0ull, &data));
-	//vkUnmapMemory(pDevice, memory); // for now we use persistent mapping
+	if
+		(pProperties & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
+	{
+		VK_CHECK(vkMapMemory(pDevice, memory, 0ull, VK_WHOLE_SIZE, 0ull, &data));
+	}
 
 	result.buffer = buffer;
 	result.memory = memory;
 	result.size = pSize;
 	result.data = data;
+}
+
+void uploadBuffer(VkDevice pDevice, VkCommandPool pCommandPool, VkCommandBuffer pCommandBuffer, VkQueue pCopyQueue, const Buffer& pSrc, const Buffer& pDst, void* pData, size_t pSize)
+{
+	// pDst.data is a persistent mapped buffer
+	memcpy(pSrc.data, pData, pSize);
+	
+	VK_CHECK(vkResetCommandPool(pDevice, pCommandPool, 0));
+
+	VK_CHECK(vkResetCommandBuffer(pCommandBuffer, 0));
+
+
+	VkCommandBufferBeginInfo lBeginInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+	lBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+	VK_CHECK(vkBeginCommandBuffer(pCommandBuffer, &lBeginInfo));
+
+	VkBufferCopy regions = { 0, 0, VkDeviceSize(pSize) };
+	vkCmdCopyBuffer(pCommandBuffer, pSrc.buffer, pDst.buffer, 1, &regions);
+
+	VkBufferMemoryBarrier copyBufferBarrier = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
+	copyBufferBarrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
+	copyBufferBarrier.dstAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
+	// TODO : check GraphicsQueueIndex == TransfertQueueIndex
+	copyBufferBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	copyBufferBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;;
+	copyBufferBarrier.buffer = pDst.buffer;
+	copyBufferBarrier.offset = 0;
+	copyBufferBarrier.size = VkDeviceSize(pSize);
+
+	vkCmdPipelineBarrier(pCommandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 1, &copyBufferBarrier, 0, nullptr);
+
+
+	VK_CHECK(vkEndCommandBuffer(pCommandBuffer));
+
+
+	// https://github.com/KhronosGroup/Vulkan-Docs/wiki/Synchronization-Examples
+	VkPipelineStageFlags lSubmitStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT; // why
+	VkSubmitInfo lSubmitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+	lSubmitInfo.commandBufferCount = 1;
+	lSubmitInfo.pCommandBuffers = &pCommandBuffer;
+	VK_CHECK(vkQueueSubmit(pCopyQueue, 1, &lSubmitInfo, nullptr));
+
+	VK_CHECK(vkDeviceWaitIdle(pDevice));
 }
 
 void destroyBuffer(VkDevice pDevice, const Buffer& pBuffer)
@@ -881,18 +927,25 @@ int main(int argc, const char* argv[])
 
 
 	// Find a graphics capable queue
-	uint32_t lQueueFamilyIndex = 0;
-	findQueueFamilyIndex(lPhysicalDevice, &lQueueFamilyIndex);
-
+	uint32_t lGraphicsQueueFamilyIndex = 0;
+	findQueueFamilyIndex(lPhysicalDevice, &lGraphicsQueueFamilyIndex, VK_QUEUE_GRAPHICS_BIT);
+	
 	// Create logical device
-	VkDevice lDevice = createDevice(lVulkanInstance, lPhysicalDevice, &lQueueFamilyIndex);
+	VkDevice lDevice = createDevice(lVulkanInstance, lPhysicalDevice, &lGraphicsQueueFamilyIndex);
 
 	//VolkDeviceTable lVolkDeviceTable;
 	//volkLoadDeviceTable(&lVolkDeviceTable, lDevice);
 
 	// Retrieve the graphics queue
 	VkQueue lGraphicsQueue;
-	vkGetDeviceQueue(lDevice, lQueueFamilyIndex, 0, &lGraphicsQueue);
+	vkGetDeviceQueue(lDevice, lGraphicsQueueFamilyIndex, 0, &lGraphicsQueue);
+	
+	// Retrieve the graphics queue
+	uint32_t lTransfertQueueFamilyIndex = 0;
+	findQueueFamilyIndex(lPhysicalDevice, &lTransfertQueueFamilyIndex, VK_QUEUE_TRANSFER_BIT);
+	VkQueue lTransfertQueue;
+	vkGetDeviceQueue(lDevice, lTransfertQueueFamilyIndex, 0, &lTransfertQueue);
+
 
 	// Surface creation are platform specific
 	GLFWwindow* lWindow = glfwCreateWindow(512, 512, "VulkanRenderer", 0, 0);
@@ -903,7 +956,7 @@ int main(int argc, const char* argv[])
 	VkSurfaceKHR lSurface = createSurface(lVulkanInstance, lWindow);
 
 	VkBool32 lPresentationSupported = false;
-	VK_CHECK(vkGetPhysicalDeviceSurfaceSupportKHR(lPhysicalDevice, lQueueFamilyIndex, lSurface, &lPresentationSupported));
+	VK_CHECK(vkGetPhysicalDeviceSurfaceSupportKHR(lPhysicalDevice, lGraphicsQueueFamilyIndex, lSurface, &lPresentationSupported));
 	assert(lPresentationSupported);
 
 	VkSurfaceCapabilitiesKHR lSurfaceCaps;
@@ -932,7 +985,7 @@ int main(int argc, const char* argv[])
 	VkRenderPass lRenderPass = createRenderPass(lDevice, lSurfaceFormat.format);
 
 	Swapchain lSwapchain;
-	createSwapchain(lSwapchain, VK_NULL_HANDLE, lDevice, lSurface, lSurfaceFormat, lSurfaceCaps, lQueueFamilyIndex, lWindowWidth, lWindowHeight, 2, lRenderPass);
+	createSwapchain(lSwapchain, VK_NULL_HANDLE, lDevice, lSurface, lSurfaceFormat, lSurfaceCaps, lGraphicsQueueFamilyIndex, lWindowWidth, lWindowHeight, 2, lRenderPass);
 
 	
 	/*
@@ -960,17 +1013,19 @@ int main(int argc, const char* argv[])
 	//bool lResult = loadMesh(lMesh, R"path(F:\Data\Models\stanford\kitten.obj)path");
 	//bool lResult = loadMesh(lMesh, R"path(F:\Data\Models\stanford\debug.obj)path");
 
+
+	size_t lChunkSize = 16 * 1024 * 1024;
+
+
+
 	// TODO : a stage buffer to copy data from CPU to GPU(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT ) memory trough vkCmdCopyBuffer
 	// At the moment
-	size_t lChunkSize = 16 * 1024 * 1024;
+	Buffer lStageBuffer = {};
+	createBuffer(lStageBuffer, lDevice, lPhysicalMemoryProperties, lChunkSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 	Buffer lMeshVertexBuffer = {};
-	createBuffer(lMeshVertexBuffer, lDevice, lPhysicalMemoryProperties, lChunkSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+	createBuffer(lMeshVertexBuffer, lDevice, lPhysicalMemoryProperties, lChunkSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 	Buffer lMeshIndexBuffer = {};
-	createBuffer(lMeshIndexBuffer, lDevice, lPhysicalMemoryProperties, lChunkSize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
-	memcpy(lMeshVertexBuffer.data, (void*)lMesh.vertices.data(), lMesh.vertices.size() * sizeof(Vertex));
-	memcpy(lMeshIndexBuffer.data, (void*)lMesh.indices.data(), lMesh.indices.size() * sizeof(uint32_t));
-
+	createBuffer(lMeshIndexBuffer, lDevice, lPhysicalMemoryProperties, lChunkSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
 	VkVertexInputBindingDescription binding = { 0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX };
 	VkVertexInputAttributeDescription attrs[3] = {};
@@ -1024,7 +1079,7 @@ int main(int argc, const char* argv[])
 	VkSemaphore lAcquireSemaphore = createSemaphore(lDevice);
 	VkSemaphore lReleaseSemaphore = createSemaphore(lDevice);
 
-	VkCommandPool lCommandPool = createCommandPool(lDevice, lQueueFamilyIndex);
+	VkCommandPool lCommandPool = createCommandPool(lDevice, lGraphicsQueueFamilyIndex);
 
 
 	const uint32_t COMMAND_BUFFER_COUNT = 2;
@@ -1044,6 +1099,9 @@ int main(int argc, const char* argv[])
 	uint32_t lQueryCount = 16;
 	VkQueryPool lTimeStampQueries = createQueryPool(lDevice, lQueryCount);
 	
+	// At the moment do a hard lock upload
+	uploadBuffer(lDevice, lCommandPool, lCommandBuffers[0], lTransfertQueue, lStageBuffer, lMeshVertexBuffer, (void*)lMesh.vertices.data(), lMesh.vertices.size() * sizeof(Vertex));
+	uploadBuffer(lDevice, lCommandPool, lCommandBuffers[0], lTransfertQueue, lStageBuffer, lMeshIndexBuffer, (void*)lMesh.indices.data(), lMesh.indices.size() * sizeof(uint32_t));
 
 	uint64_t frameCount = 0;
 	double cpuTotalTime = 0.0;
@@ -1063,7 +1121,7 @@ int main(int argc, const char* argv[])
 		{
 			lWindowWidth = lNewWindowWidth;
 			lWindowHeight = lNewWindowHeight;
-			resizeSwapchain(lSwapchain, lSwapchain.swapchain, lDevice, lSurface, lSurfaceFormat, lSurfaceCaps, lQueueFamilyIndex, lWindowWidth, lWindowHeight, 2, lRenderPass);
+			resizeSwapchain(lSwapchain, lSwapchain.swapchain, lDevice, lSurface, lSurfaceFormat, lSurfaceCaps, lGraphicsQueueFamilyIndex, lWindowWidth, lWindowHeight, 2, lRenderPass);
 		}
 
 		lCommandBufferIndex = (++lCommandBufferIndex) % COMMAND_BUFFER_COUNT;
@@ -1197,6 +1255,8 @@ int main(int argc, const char* argv[])
 
 	destroyBuffer(lDevice, lMeshVertexBuffer);
 	destroyBuffer(lDevice, lMeshIndexBuffer);
+
+	destroyBuffer(lDevice, lStageBuffer);
 
 
 	vkDestroyRenderPass(lDevice, lRenderPass, nullptr);
