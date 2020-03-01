@@ -146,6 +146,7 @@ VkInstance createInstance()
 		VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
 #endif
 	};
+
 	lCreateInfo.enabledExtensionCount = ARRAY_COUNT(lVulkanExtensions);
 	lCreateInfo.ppEnabledExtensionNames = lVulkanExtensions;
 	VK_CHECK(vkCreateInstance(&lCreateInfo, nullptr, &lVulkanInstance));
@@ -265,6 +266,7 @@ VkDevice createDevice(VkInstance pInstance, VkPhysicalDevice pPhysicalDevice, ui
 	const char* lDeviceExtensions[] =
 	{
 		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+		VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME,
 	};
 	lDeviceCreateInfo.enabledExtensionCount = ARRAY_COUNT(lDeviceExtensions);
 	lDeviceCreateInfo.ppEnabledExtensionNames = lDeviceExtensions;
@@ -1026,6 +1028,9 @@ int main(int argc, const char* argv[])
 	// HERE DESCRIPTOR LABOR END
 
 
+	/*
+	VkDescriptorSetLayout meshDescriptSetLayout = createDescriptorSetLayout(lDevice);
+
 	VkPipelineLayoutCreateInfo meshLayoutCreateInfo = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
 	//VkPipelineLayoutCreateFlags     flags;
 	meshLayoutCreateInfo.setLayoutCount = 1;
@@ -1035,7 +1040,14 @@ int main(int argc, const char* argv[])
 
 	VkPipelineLayout lMeshLayout;
 	VK_CHECK(vkCreatePipelineLayout(lDevice, &meshLayoutCreateInfo, nullptr, &lMeshLayout));
+	*/
 
+	VkDescriptorSetLayout meshDescriptorSetLayout = createDescriptorSetLayout(lDevice);
+	VkPipelineLayout lMeshLayout = createPipelineLayout(lDevice, 1, &meshDescriptorSetLayout, 0, NULL);
+	VkDescriptorUpdateTemplate meshUpdateTpl = createDescriptorUpdateTemplate(lDevice, VK_PIPELINE_BIND_POINT_GRAPHICS, lMeshLayout, meshDescriptorSetLayout);
+	// TODO : check if safe to destroy here
+	//vkDestroyDescriptorSetLayout(lDevice, meshDescriptorSetLayout, NULL);
+	
 	VkPipeline lMeshPipeline;
 	VkPipelineCache lPipelineCache = 0; // TODO : learn that
 	lMeshPipeline = createGraphicsPipeline(lDevice, lPipelineCache, lMeshLayout, lRenderPass, lMeshVertexShader, lMeshFragmentShader, lMeshVertexInputCreateInfo);
@@ -1131,13 +1143,7 @@ int main(int argc, const char* argv[])
 		VkRect2D scissor = { {0,0}, {(uint32_t)lWindowWidth,(uint32_t)lWindowHeight} };
 		vkCmdSetScissor(lCommandBuffers[lCommandBufferIndex], 0, 1, &scissor);
 
-		// Draw (Bind API)
-		vkCmdBindPipeline(lCommandBuffers[lCommandBufferIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, lMeshPipeline);
-		VkDeviceSize dummyOffset = 0;
-		vkCmdBindVertexBuffers(lCommandBuffers[lCommandBufferIndex], 0, 1, &lMeshVertexBuffer.buffer, &dummyOffset);
-		vkCmdBindIndexBuffer(lCommandBuffers[lCommandBufferIndex], lMeshIndexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-		vkCmdBindDescriptorSets(lCommandBuffers[lCommandBufferIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, lMeshLayout, 0, 1, &descriptorSets[lCommandBufferIndex], 0, nullptr);
-
+		// Update the uniform
 		// Test, should i have to use vkFlushMappedMemoryRanges?. or it's not necessary with COHERENT MEMORY
 		((Object*)uniformBuffers[lCommandBufferIndex].data)->color[0] = lCommandBufferIndex == 0 ? (rand() / float(RAND_MAX)) : 0.0f;
 		((Object*)uniformBuffers[lCommandBufferIndex].data)->color[1] = lCommandBufferIndex == 1 ? (rand() / float(RAND_MAX)) : 0.0f;
@@ -1151,14 +1157,40 @@ int main(int argc, const char* argv[])
 		VK_CHECK(vkFlushMappedMemoryRanges(lDevice, 1, &range)); // probably a bad idea to do that in Begin/EndRenderpass
 		*/
 
+		// Draw (Bind API)
+		/*
+		vkCmdBindPipeline(lCommandBuffers[lCommandBufferIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, lMeshPipeline);
+		VkDeviceSize dummyOffset = 0;
+		vkCmdBindVertexBuffers(lCommandBuffers[lCommandBufferIndex], 0, 1, &lMeshVertexBuffer.buffer, &dummyOffset);
+		vkCmdBindIndexBuffer(lCommandBuffers[lCommandBufferIndex], lMeshIndexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+		vkCmdBindDescriptorSets(lCommandBuffers[lCommandBufferIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, lMeshLayout, 0, 1, &descriptorSets[lCommandBufferIndex], 0, nullptr);
+
 		for (int i = 0; i < 100; ++i)
 		{
 			vkCmdDrawIndexed(lCommandBuffers[lCommandBufferIndex], (uint32_t)lMesh.indices.size(), 1, 0, 0, 0);
 		}
+		*/
+
+		vkCmdBindPipeline(lCommandBuffers[lCommandBufferIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, lMeshPipeline);
+		VkDeviceSize dummyOffset = 0;
+		vkCmdBindVertexBuffers(lCommandBuffers[lCommandBufferIndex], 0, 1, &lMeshVertexBuffer.buffer, &dummyOffset);
+		vkCmdBindIndexBuffer(lCommandBuffers[lCommandBufferIndex], lMeshIndexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+		//vkCmdBindDescriptorSets(lCommandBuffers[lCommandBufferIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, lMeshLayout, 0, 1, &descriptorSets[lCommandBufferIndex], 0, nullptr);
+
+		DescriptorInfo descriptorInfos[] =
+		{ 
+			DescriptorInfo{uniformBuffers[lCommandBufferIndex].buffer, 0, VK_WHOLE_SIZE}
+		};
+		vkCmdPushDescriptorSetWithTemplateKHR(lCommandBuffers[lCommandBufferIndex], meshUpdateTpl, lMeshLayout, 0, descriptorInfos);
+		vkCmdDrawIndexed(lCommandBuffers[lCommandBufferIndex], (uint32_t)lMesh.indices.size(), 1, 0, 0, 0);
+
+
 
 
 		// BindLessAPI (vk 1.1)
 		//vkCmdPushDescriptorSetWithTemplateKHR
+		//vkCmdPushDescriptorSetWithTemplateKHR(commandBuffer, descriptorUpdateTemplate, layout, set, data)
+		//vkUpdateDescriptorSetWithTemplate or vkCmdPushDescriptorSetWithTemplateKHR
 
 
 		//VkImageMemoryBarrier presentBarrier = imageBarrier(lSwapChainImages[lImageIndex], 0, 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
@@ -1234,10 +1266,8 @@ int main(int argc, const char* argv[])
 
 	destroySwapchain(lDevice, lSwapchain);
 
-	//vkDestroyPipeline(lDevice, lTrianglePipeline, nullptr);
-	//vkDestroyPipelineLayout(lDevice, lTriangleLayout, nullptr);
-	//vkDestroyShaderModule(lDevice, lVertexShader, nullptr);
-	//vkDestroyShaderModule(lDevice, lFragmentShader, nullptr);
+	vkDestroyDescriptorSetLayout(lDevice, meshDescriptorSetLayout, nullptr);
+	vkDestroyDescriptorUpdateTemplate(lDevice, meshUpdateTpl, nullptr);
 
 	vkDestroyPipeline(lDevice, lMeshPipeline, nullptr);
 	vkDestroyPipelineLayout(lDevice, lMeshLayout, nullptr);

@@ -4,7 +4,11 @@
 #include <stdio.h>
 #include <malloc.h>
 #include <assert.h>
+#include <vector>
 
+
+
+/*****************************************************************************/
 VkShaderModule loadShader(VkDevice pDevice, const char* pFilename)
 {
 	//char path[256];
@@ -40,20 +44,45 @@ VkShaderModule loadShader(VkDevice pDevice, const char* pFilename)
 	return VK_NULL_HANDLE;
 }
 
-VkPipelineLayout createPipelineLayout(VkDevice pDevice)
+
+/*****************************************************************************/
+VkDescriptorSetLayout createDescriptorSetLayout(VkDevice pDevice)
+{
+	// TODO : This is the thing to automated with reflection
+	VkDescriptorSetLayoutBinding uboLayoutBinding = {};
+	uboLayoutBinding.binding = 0;
+	uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	uboLayoutBinding.descriptorCount = 1; // for array
+	uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT; // VK_SHADER_STAGE_ALL_GRAPHICS (opengl fashion?)
+	uboLayoutBinding.pImmutableSamplers = nullptr; // Optional The pImmutableSamplers field is only relevant for image sampling related descriptors
+
+	VkDescriptorSetLayoutCreateInfo layoutInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+	layoutInfo.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR;
+	layoutInfo.bindingCount = 1;
+	layoutInfo.pBindings = &uboLayoutBinding;
+
+	VkDescriptorSetLayout descriptorSetLayout = 0;
+	VK_CHECK(vkCreateDescriptorSetLayout(pDevice, &layoutInfo, nullptr, &descriptorSetLayout));
+	return descriptorSetLayout;
+}
+
+/*****************************************************************************/
+VkPipelineLayout createPipelineLayout(VkDevice pDevice, uint32_t setLayoutCount, const VkDescriptorSetLayout* pSetLayouts, uint32_t pushConstantRangeCount, const VkPushConstantRange* pPushConstantRanges)
 {
 	VkPipelineLayoutCreateInfo createInfo = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
 	//VkPipelineLayoutCreateFlags     flags;
-	//uint32_t                        setLayoutCount;
-	//const VkDescriptorSetLayout* pSetLayouts;
-	//uint32_t                        pushConstantRangeCount;
-	//const VkPushConstantRange* pPushConstantRanges;
+	createInfo.setLayoutCount = setLayoutCount;
+	createInfo.pSetLayouts = pSetLayouts;
+	createInfo.pushConstantRangeCount = pushConstantRangeCount;
+	createInfo.pPushConstantRanges = pPushConstantRanges;
 
-	VkPipelineLayout layout;
-	VK_CHECK(vkCreatePipelineLayout(pDevice, &createInfo, nullptr, &layout));
-	return layout;
+	VkPipelineLayout pipelineLayout;
+	VK_CHECK(vkCreatePipelineLayout(pDevice, &createInfo, nullptr, &pipelineLayout));
+
+	return pipelineLayout;
 }
 
+/*****************************************************************************/
 VkPipeline createGraphicsPipeline(VkDevice pDevice, VkPipelineCache pPipelineCache, VkPipelineLayout pPipelineLayout, VkRenderPass pRenderPass, VkShaderModule pVertexShader, VkShaderModule pFragmentShader, VkPipelineVertexInputStateCreateInfo& pInputState)
 {
 	VkPipelineShaderStageCreateInfo stages[2] = {};
@@ -165,4 +194,36 @@ VkPipeline createGraphicsPipeline(VkDevice pDevice, VkPipelineCache pPipelineCac
 	VkPipeline pipeline = 0;
 	VK_CHECK(vkCreateGraphicsPipelines(pDevice, pPipelineCache, 1, &createInfo, nullptr, &pipeline));
 	return pipeline;
+}
+
+
+
+/*****************************************************************************/
+VkDescriptorUpdateTemplate createDescriptorUpdateTemplate(VkDevice pDevice, VkPipelineBindPoint pipelineBindPoint, VkPipelineLayout pipelineLayout, VkDescriptorSetLayout descriptorSetLayout)
+{
+	std::vector<VkDescriptorUpdateTemplateEntry> entries;
+	entries.resize(1);
+	entries[0].dstBinding = 0;
+	entries[0].dstArrayElement = 0;
+	entries[0].descriptorCount = 1;
+	entries[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	// TODO : DescriptorInfo 
+	// This is the data layout given to the vkUpdateDescriptorSetWithTemplate
+	entries[0].offset = sizeof(DescriptorInfo) * 0;
+	entries[0].stride = sizeof(DescriptorInfo);
+
+	VkDescriptorUpdateTemplateCreateInfo createInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_UPDATE_TEMPLATE_CREATE_INFO };
+	//const void* pNext;
+	//VkDescriptorUpdateTemplateCreateFlags     flags;
+	createInfo.descriptorUpdateEntryCount = (uint32_t)entries.size();
+	createInfo.pDescriptorUpdateEntries = entries.data();
+	createInfo.templateType = VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_PUSH_DESCRIPTORS_KHR;
+	createInfo.descriptorSetLayout = descriptorSetLayout;
+	createInfo.pipelineBindPoint = pipelineBindPoint;
+	createInfo.pipelineLayout = pipelineLayout;
+	//uint32_t                                  set;
+
+	VkDescriptorUpdateTemplate updateTpl = 0;
+	VK_CHECK(vkCreateDescriptorUpdateTemplate(pDevice, &createInfo, NULL, &updateTpl));
+	return updateTpl;
 }
