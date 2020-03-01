@@ -1,7 +1,9 @@
 project (rendererVK)
 
 set(sources
-        main.cpp)
+    main.cpp
+    vk_common.h
+    Shaders.h Shaders.cpp)
 
 source_group("Sources" FILES ${sources})
 
