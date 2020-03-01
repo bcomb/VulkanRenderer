@@ -13,6 +13,24 @@
 #define FAST_OBJ_IMPLEMENTATION
 #include <../meshoptimizer/extern/fast_obj.h>
 
+struct vec4
+{
+	float data[4];
+	float& operator[](uint32_t i) { return data[i];  }
+};
+
+struct mat4
+{
+	union
+	{
+		float data[16];
+		vec4 vdata[4];
+	};
+	//float& operator[](uint32_t i) { return data[i]; }
+	vec4& operator[](uint32_t i) { return vdata[i]; }
+};
+#include <../../Shaders/mesh.h>
+
 
 #define VK_CHECK(call_) do { VkResult result_ = call_;	assert(result_ == VK_SUCCESS); } while(0);
 #define ARRAY_COUNT(array_) (sizeof(array_) / sizeof(array_[0]))
@@ -24,15 +42,6 @@
 /******************************************************************************/
 /******************************************************************************/
 /******************************************************************************/
-
-// Struct define 'per object'
-struct alignas(16) UniformBufferObject
-{
-	float proj[16];
-	float view[16];
-	float model[16];
-	float color[4];
-};
 
 /******************************************************************************/
 VkDebugUtilsMessengerEXT gDebugMessenger;
@@ -186,6 +195,12 @@ VkSwapchainKHR createSwapchain(VkDevice pDevice, VkSurfaceKHR pSurface, VkSurfac
 	//lSwapchainInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
 	lSwapchainInfo.pQueueFamilyIndices = &pFamilyIndex;
 	lSwapchainInfo.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+
+	// In FIFO mode the presentation requests are stored in a queue.
+	// If the queue is full the application will have to wait until an image is ready to be acquired again.
+	// This is a normal operating mode for mobile, which automatically locks the framerate to 60 FPS.
+
+
 	lSwapchainInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;  //VK_PRESENT_MODE_MAILBOX_KHR, tiled device?
 	//lSwapchainInfo.presentMode = VK_PRESENT_MODE_IMMEDIATE_KHR; // no vsync?
 	// The compositeAlpha field specifies if the alpha channel should be used for blending with other windows in the window system.You'll almost always want to simply ignore the alpha channel, hence VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR
@@ -1111,11 +1126,11 @@ int main(int argc, const char* argv[])
 	std::vector<Buffer> uniformBuffers(lSwapchainImageCount);
 	for (uint32_t i = 0; i < lSwapchainImageCount; ++i)
 	{
-		createBuffer(uniformBuffers[i], lDevice, lPhysicalMemoryProperties, sizeof(UniformBufferObject), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT /*| VK_MEMORY_PROPERTY_HOST_COHERENT_BIT*/);
-		((UniformBufferObject*)uniformBuffers[i].data)->color[0] = 1.0f;
-		((UniformBufferObject*)uniformBuffers[i].data)->color[1] = 0.0f;
-		((UniformBufferObject*)uniformBuffers[i].data)->color[2] = 0.0f;
-		((UniformBufferObject*)uniformBuffers[i].data)->color[3] = 1.0f;
+		createBuffer(uniformBuffers[i], lDevice, lPhysicalMemoryProperties, sizeof(Object), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT /*| VK_MEMORY_PROPERTY_HOST_COHERENT_BIT*/);
+		((Object*)uniformBuffers[i].data)->color[0] = 1.0f;
+		((Object*)uniformBuffers[i].data)->color[1] = 0.0f;
+		((Object*)uniformBuffers[i].data)->color[2] = 0.0f;
+		((Object*)uniformBuffers[i].data)->color[3] = 1.0f;
 	}
 
 	VkDescriptorSetLayout descriptorSetLayout;
@@ -1154,7 +1169,7 @@ int main(int argc, const char* argv[])
 		VkDescriptorBufferInfo bufferInfo = {};
 		bufferInfo.buffer = uniformBuffers[i].buffer;
 		bufferInfo.offset = 0;
-		bufferInfo.range = sizeof(UniformBufferObject);
+		bufferInfo.range = sizeof(Object);
 
 
 		VkWriteDescriptorSet descriptorWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
@@ -1247,8 +1262,9 @@ int main(int argc, const char* argv[])
 		uint32_t lImageIndex = 0;
 		VK_CHECK(vkAcquireNextImageKHR(lDevice, lSwapchain.swapchain, ~0ull, lAcquireSemaphore, VK_NULL_HANDLE, &lImageIndex));
 
-		//VK_CHECK(vkResetCommandBuffer(commandBuffers[commandBufferIndex], 0));
 		//VK_CHECK(vkResetCommandPool(lDevice, lCommandPool, 0));
+		VK_CHECK(vkResetCommandBuffer(lCommandBuffers[lCommandBufferIndex], 0));
+		
 
 		VkCommandBufferBeginInfo lBeginInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
 		lBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -1287,10 +1303,10 @@ int main(int argc, const char* argv[])
 		vkCmdBindDescriptorSets(lCommandBuffers[lCommandBufferIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, lMeshLayout, 0, 1, &descriptorSets[lCommandBufferIndex], 0, nullptr);
 
 		// Test, should i have to use vkFlushMappedMemoryRanges?. or it's not necessary with COHERENT MEMORY
-		((UniformBufferObject*)uniformBuffers[lCommandBufferIndex].data)->color[0] = lCommandBufferIndex == 0 ? (rand() / float(RAND_MAX)) : 1.0f;
-		((UniformBufferObject*)uniformBuffers[lCommandBufferIndex].data)->color[1] = lCommandBufferIndex == 1 ? (rand() / float(RAND_MAX)) : 1.0f;
-		((UniformBufferObject*)uniformBuffers[lCommandBufferIndex].data)->color[2] = 0.0f;
-		((UniformBufferObject*)uniformBuffers[lCommandBufferIndex].data)->color[3] = 1.0f;
+		((Object*)uniformBuffers[lCommandBufferIndex].data)->color[0] = lCommandBufferIndex == 0 ? (rand() / float(RAND_MAX)) : 0.0f;
+		((Object*)uniformBuffers[lCommandBufferIndex].data)->color[1] = lCommandBufferIndex == 1 ? (rand() / float(RAND_MAX)) : 0.0f;
+		((Object*)uniformBuffers[lCommandBufferIndex].data)->color[2] = 0.0f;
+		((Object*)uniformBuffers[lCommandBufferIndex].data)->color[3] = 1.0f;
 		/* Don't needed as UBO are HOST_VISIBLE
 		VkMappedMemoryRange range = { VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE };
 		range.memory = uniformBuffers[lCommandBufferIndex].memory;

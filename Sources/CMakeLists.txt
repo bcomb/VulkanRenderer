@@ -15,7 +15,8 @@ IF(WIN32)
 ENDIF(WIN32)
 
 file(GLOB glsl_sources "../Shaders/*.glsl")
-source_group(Shaders FILES ${glsl_sources})
+file(GLOB glsl_inc "../Shaders/*.h")
+source_group(Shaders FILES ${glsl_sources} ${glsl_inc})
 
 
 add_executable(${PROJECT_NAME} ${sources} ${glsl_sources})
