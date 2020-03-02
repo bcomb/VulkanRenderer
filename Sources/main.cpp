@@ -941,9 +941,11 @@ int main(int argc, const char* argv[])
 	lMeshVertexInputCreateInfo.vertexAttributeDescriptionCount = 3;
 	lMeshVertexInputCreateInfo.pVertexAttributeDescriptions = attrs;
 
-	VkShaderModule lMeshVertexShader = loadShader(lDevice, "../../Shaders/mesh.vert.glsl.spv");
-	VkShaderModule lMeshFragmentShader = loadShader(lDevice, "../../Shaders/mesh.frag.glsl.spv");
+	Shader lMeshVertexShader;
+	loadShader(lMeshVertexShader, lDevice, "../../Shaders/mesh.vert.glsl.spv");
 
+	Shader lMeshFragmentShader;
+	loadShader(lMeshFragmentShader, lDevice, "../../Shaders/mesh.frag.glsl.spv");
 
 
 	// HERE DESCRIPTOR LABOR BEGIN
@@ -1271,8 +1273,9 @@ int main(int argc, const char* argv[])
 
 	vkDestroyPipeline(lDevice, lMeshPipeline, nullptr);
 	vkDestroyPipelineLayout(lDevice, lMeshLayout, nullptr);
-	vkDestroyShaderModule(lDevice, lMeshVertexShader, nullptr);
-	vkDestroyShaderModule(lDevice, lMeshFragmentShader, nullptr);
+
+	destroyShader(lDevice, lMeshVertexShader);
+	destroyShader(lDevice, lMeshFragmentShader);
 
 	destroyBuffer(lDevice, lMeshVertexBuffer);
 	destroyBuffer(lDevice, lMeshIndexBuffer);

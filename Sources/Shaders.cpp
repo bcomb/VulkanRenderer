@@ -5,11 +5,65 @@
 #include <malloc.h>
 #include <assert.h>
 #include <vector>
-
-
+#include <vulkan/spirv.h>
 
 /*****************************************************************************/
-VkShaderModule loadShader(VkDevice pDevice, const char* pFilename)
+VkShaderStageFlagBits getShaderStage(SpvExecutionModel model)
+{
+	switch (model)
+	{
+	case SpvExecutionModelVertex:	return VK_SHADER_STAGE_VERTEX_BIT;
+	case SpvExecutionModelFragment:	return VK_SHADER_STAGE_FRAGMENT_BIT;
+	default:
+		assert(!"unsupported model");
+	};
+
+	return VkShaderStageFlagBits(0);
+}
+
+/*****************************************************************************/
+// https://www.khronos.org/registry/spir-v/specs/1.0/SPIRV.pdf
+void parseSpirv(Shader& pShader, const uint32_t* code, uint32_t codeSize)
+{
+	assert(code[0] == SpvMagicNumber); // p19
+
+	union SpvVersion
+	{
+		uint32_t raw;
+		struct { uint8_t pad0, minor, major, pad1; };
+	} version;
+	version.raw = code[1];
+
+	uint32_t idBound = code[3];
+
+	// Instruction stream
+	const uint32_t* stream = code + 5;
+	while (stream != code + codeSize)
+	{
+		union SpvOpCode
+		{			
+			uint32_t raw;
+			struct { uint16_t opcode, wordCount; };
+		} opcode;
+		opcode.raw = *stream;
+
+		switch (opcode.opcode)
+		{
+		case SpvOpEntryPoint:
+		{
+			assert(opcode.wordCount >= 2);
+			pShader.stage = getShaderStage(SpvExecutionModel(stream[1]));
+		}
+		break;
+		}
+
+
+		stream += opcode.wordCount;
+	}
+}
+
+/*****************************************************************************/
+bool loadShader(Shader& pShader, VkDevice pDevice, const char* pFilename)
 {
 	//char path[256];
 	//DWORD r = GetCurrentirectory(256, path);
@@ -28,6 +82,9 @@ VkShaderModule loadShader(VkDevice pDevice, const char* pFilename)
 		assert(bytesRead == bytesSize);
 		assert(bytesRead % 4 == 0);
 
+		// Extract information directly from spirv
+		parseSpirv(pShader, (const uint32_t*)code, bytesSize / 4);
+
 		VkShaderModuleCreateInfo createInfo = { VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
 		//VkShaderModuleCreateFlags    flags;
 		createInfo.codeSize = bytesSize;			// size in bytes
@@ -36,14 +93,21 @@ VkShaderModule loadShader(VkDevice pDevice, const char* pFilename)
 		VkShaderModule shaderModule;
 		VK_CHECK(vkCreateShaderModule(pDevice, &createInfo, nullptr, &shaderModule));
 
+		pShader.module = shaderModule;
+
 		free(code);
 
-		return shaderModule;
+		return true;
 	}
 
-	return VK_NULL_HANDLE;
+	return false;
 }
 
+/*****************************************************************************/
+void destroyShader(VkDevice pDevice, Shader& pShader)
+{
+	vkDestroyShaderModule(pDevice, pShader.module, nullptr);
+}
 
 /*****************************************************************************/
 VkDescriptorSetLayout createDescriptorSetLayout(VkDevice pDevice)
@@ -83,20 +147,20 @@ VkPipelineLayout createPipelineLayout(VkDevice pDevice, uint32_t setLayoutCount,
 }
 
 /*****************************************************************************/
-VkPipeline createGraphicsPipeline(VkDevice pDevice, VkPipelineCache pPipelineCache, VkPipelineLayout pPipelineLayout, VkRenderPass pRenderPass, VkShaderModule pVertexShader, VkShaderModule pFragmentShader, VkPipelineVertexInputStateCreateInfo& pInputState)
+VkPipeline createGraphicsPipeline(VkDevice pDevice, VkPipelineCache pPipelineCache, VkPipelineLayout pPipelineLayout, VkRenderPass pRenderPass, Shader& pVertexShader, Shader& pFragmentShader, VkPipelineVertexInputStateCreateInfo& pInputState)
 {
 	VkPipelineShaderStageCreateInfo stages[2] = {};
 	stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
 	//const void* pNext;
 	//VkPipelineShaderStageCreateFlags    flags;
-	stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-	stages[0].module = pVertexShader;
+	stages[0].stage = pVertexShader.stage;
+	stages[0].module = pVertexShader.module;
 	stages[0].pName = "main";
 	//const VkSpecializationInfo* pSpecializationInfo;
 
 	stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-	stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-	stages[1].module = pFragmentShader;
+	stages[1].stage = pFragmentShader.stage;
+	stages[1].module = pFragmentShader.module;
 	stages[1].pName = "main";
 
 
