@@ -36,8 +36,6 @@ struct mat4
 #include <../../Shaders/mesh.h>
 
 
-
-
 /******************************************************************************/
 /******************************************************************************/
 /******************************************************************************/
@@ -419,6 +417,91 @@ VkFramebuffer createFramebuffer(VkDevice pDevice, VkRenderPass pRenderPass, VkIm
 	return framebuffer;
 }
 
+struct Vec3
+{	
+	float x, y, z;
+
+	Vec3() {}
+	Vec3(float _x, float _y, float _z) { x = _x; y = _y; z = _z; }
+	Vec3(const Vec3& other) { x = other.x; y = other.y; z = other.z; }
+
+	inline Vec3& operator-=(const Vec3& other)
+	{
+		x -= other.x; y -= other.y; z -= other.z;
+		return *this;
+	}
+
+	inline Vec3 operator-(const Vec3& other) const
+	{
+		return Vec3(x - other.x, y - other.y, z - other.z);
+	}
+
+	inline Vec3& operator+=(const Vec3& other)
+	{
+		x += other.x; y += other.y; z += other.z;
+		return *this;
+	}
+
+	inline Vec3 operator+(const Vec3& other) const
+	{
+		return Vec3( x + other.x, y + other.y, z + other.z );
+	}
+
+	inline Vec3& operator*=(float scalar)
+	{
+		x *= scalar; y *= scalar; z *= scalar;
+		return *this;
+	}
+
+	inline Vec3 operator*(float scalar) const
+	{
+		return Vec3(x * scalar, y * scalar, z * scalar);
+	}
+
+	inline Vec3& operator/=(float scalar)
+	{
+		x /= scalar; y /= scalar; z /= scalar;
+		return *this;
+	}
+
+	inline Vec3 operator/(float scalar) const
+	{
+		return Vec3(x / scalar, y / scalar, z / scalar);
+	}
+};
+
+// AABB
+struct Box
+{
+	Box() {};
+	Vec3 min, max;
+
+	Vec3 getCenter() const
+	{
+		return (min + max) * 0.5f;
+	}
+
+	Vec3 getExtent() const
+	{
+		return (max - min);
+	}
+
+	inline void setInfinite()
+	{
+		min.x = min.y = min.z = FLT_MIN;
+		max.x = max.y = max.z = FLT_MAX;
+	}
+
+	inline void setMinMax(const Vec3& p)
+	{
+		if (p.x < min.x) min.x = p.x;
+		if (p.y < min.y) min.y = p.y;
+		if (p.z < min.z) min.z = p.z;
+		if (p.x > max.x) max.x = p.x;
+		if (p.y > max.y) max.y = p.y;
+		if (p.z > max.z) max.z = p.z;
+	}
+};
 
 struct Vertex
 {
@@ -427,13 +510,23 @@ struct Vertex
 	float tu, tv;		// texture coord
 };
 
+// Mesh representation VertexBuffer + IndexBuffer
 struct Mesh
 {
 	std::vector<Vertex> vertices;
 	std::vector<uint32_t> indices;
 };
 
-bool loadMesh(Mesh& pMesh, const char* pPath)
+// Triangle as a mesth
+void loadTriangleMesh(Mesh& pMesh)
+{
+	pMesh.vertices = { {-0.5,-0.5,0.0}, {0.5,-0.5,0.0}, {0.0,0.5,0.0} };
+	pMesh.indices = { 0, 1, 2 };
+}
+
+
+// Simple obj mesh loader
+bool loadMesh(Mesh& pMesh, const char* pPath, bool pNormalized = false)
 {
 	static_assert(sizeof(fastObjUInt) == sizeof(uint32_t),"typeid !=");
 
@@ -446,6 +539,12 @@ bool loadMesh(Mesh& pMesh, const char* pPath)
 	for (size_t i = 0; i < lMesh->face_count; ++i)
 		triangleCount += (lMesh->face_vertices[i] - 2); // Strip
 	pMesh.vertices.resize(3 * triangleCount);
+
+
+	Box boundingBox;
+	boundingBox.min = Vec3( FLT_MAX, FLT_MAX, FLT_MAX );
+	boundingBox.max = Vec3( FLT_MIN, FLT_MIN, FLT_MIN );
+
 
 	size_t vertexOffset = 0;
 	size_t indexOffset = 0;
@@ -470,14 +569,34 @@ bool loadMesh(Mesh& pMesh, const char* pPath)
 			v.ny = lMesh->normals[dataIndex.n * 3 + 1];
 			v.nz = lMesh->normals[dataIndex.n * 3 + 2];
 
-			v.tu = lMesh->texcoords[dataIndex.t * 3 + 0];
-			v.tv = lMesh->texcoords[dataIndex.t * 3 + 1];
+			//v.tu = lMesh->texcoords[dataIndex.t * 3 + 0];
+			//v.tv = lMesh->texcoords[dataIndex.t * 3 + 1];
 			//v.tz = lMesh->positions[dataIndex.t * 3 + 2];
+
+			boundingBox.setMinMax({ v.px, v.py, v.pz });
 		}
 			
 		indexOffset += lMesh->face_vertices[i];
 	}
 	assert(vertexOffset == triangleCount * 3);
+
+	if (pNormalized)
+	{
+		Vec3 lExtent = boundingBox.getExtent();
+		Vec3 lCenter = boundingBox.getCenter();
+		float lMaxExtent = std::max(lExtent.x, std::max(lExtent.y, lExtent.z));
+		for (Vertex& v : pMesh.vertices)
+		{
+			Vec3 np = Vec3(v.px, v.py, v.pz) - lCenter;
+			np /= lMaxExtent;
+
+			v.px = np.x;
+			v.py = np.y;
+			v.pz = np.z;
+		}
+	}
+
+
 
 	// Generate useless indices
 	pMesh.indices.resize(triangleCount * 3);
@@ -771,6 +890,7 @@ void uploadBuffer(VkDevice pDevice, VkCommandPool pCommandPool, VkCommandBuffer 
 	lSubmitInfo.pCommandBuffers = &pCommandBuffer;
 	VK_CHECK(vkQueueSubmit(pCopyQueue, 1, &lSubmitInfo, nullptr));
 
+#pragma message ("WARNING hard lock to remove")
 	VK_CHECK(vkDeviceWaitIdle(pDevice));
 }
 
@@ -896,9 +1016,11 @@ int main(int argc, const char* argv[])
 
 	// Create need mesh ressources
 	Mesh lMesh;
-	//bool lResult = loadMesh(lMesh, R"path(F:\Data\Models\stanford\bunny.obj)path");
-	bool lResult = loadMesh(lMesh, R"path(F:\Data\Models\stanford\kitten.obj)path");
+	//loadTriangleMesh(lMesh);
+ 	bool lResult = loadMesh(lMesh, R"path(E:\Data\obj\bicycle.obj)path", true);	
+	//bool lResult = loadMesh(lMesh, R"path(F:\Data\Models\stanford\kitten.obj)path");	
 	//bool lResult = loadMesh(lMesh, R"path(F:\Data\Models\stanford\debug.obj)path");
+	//assert(lResult);
 
 
 	size_t lChunkSize = 16 * 1024 * 1024;
@@ -914,7 +1036,11 @@ int main(int argc, const char* argv[])
 	Buffer lMeshIndexBuffer = {};
 	createBuffer(lMeshIndexBuffer, lDevice, lPhysicalMemoryProperties, lChunkSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-	VkVertexInputBindingDescription binding = { 0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX };
+	VkVertexInputBindingDescription binding = {};
+	binding.binding = 0;
+	binding.stride = sizeof(Vertex);
+	binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
 	VkVertexInputAttributeDescription attrs[3] = {};
 	// 3 float position
 	attrs[0].location = 0;
@@ -928,7 +1054,7 @@ int main(int argc, const char* argv[])
 	attrs[1].format = VK_FORMAT_R32G32B32_SFLOAT;
 	attrs[1].offset = attrs[0].offset + 3 * sizeof(float);
 
-	// 2 float tex coorrd
+	// 2 float tex coord
 	attrs[2].location = 2;
 	attrs[2].binding = 0;
 	attrs[2].format = VK_FORMAT_R32G32_SFLOAT;
@@ -942,10 +1068,13 @@ int main(int argc, const char* argv[])
 	lMeshVertexInputCreateInfo.pVertexAttributeDescriptions = attrs;
 
 	Shader lMeshVertexShader;
-	loadShader(lMeshVertexShader, lDevice, "../../Shaders/mesh.vert.glsl.spv");
+	lSuccess = loadShader(lMeshVertexShader, lDevice, "../../Shaders/mesh.vert.glsl.spv");
+	assert(lSuccess, "Can't load vertex program");
+	
 
 	Shader lMeshFragmentShader;
-	loadShader(lMeshFragmentShader, lDevice, "../../Shaders/mesh.frag.glsl.spv");
+	lSuccess = loadShader(lMeshFragmentShader, lDevice, "../../Shaders/mesh.frag.glsl.spv");
+	assert(lSuccess, "Can't load fragment program");
 
 
 	// HERE DESCRIPTOR LABOR BEGIN
@@ -1138,8 +1267,9 @@ int main(int argc, const char* argv[])
 		//vkCmdPipelineBarrier(lCommandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, 0, 0, 0, 1, &renderBeginBarrier);
 		vkCmdBeginRenderPass(lCommandBuffers[lCommandBufferIndex], &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-		VkViewport viewport = { 0.0f, 0.0f,(float)lWindowWidth, (float)lWindowHeight, 0.0f, 1.0f };
-		//VkViewport viewport = { 0.0f,(float)lWindowHeight,(float)lWindowWidth, -(float)lWindowHeight, 0.0f, 1.0f }; // Vulkan 1_1 extension to reverse Y axis
+		//VkViewport viewport = { 0.0f, 0.0f,(float)lWindowWidth, (float)lWindowHeight, 0.0f, 1.0f };
+		// Tricks negative viewport to invert
+		VkViewport viewport = { 0.0f,(float)lWindowHeight,(float)lWindowWidth, -(float)lWindowHeight, 0.0f, 1.0f }; // Vulkan 1_1 extension to reverse Y axis
 		vkCmdSetViewport(lCommandBuffers[lCommandBufferIndex], 0, 1, &viewport);
 
 		VkRect2D scissor = { {0,0}, {(uint32_t)lWindowWidth,(uint32_t)lWindowHeight} };
@@ -1258,8 +1388,6 @@ int main(int argc, const char* argv[])
 	
 	VK_CHECK(vkDeviceWaitIdle(lDevice));
 
-	// TODO : destroy ressources
-
 	vkDestroyDescriptorPool(lDevice, descriptorPool, nullptr);
 
 	vkDestroyDescriptorSetLayout(lDevice, descriptorSetLayout, nullptr);
@@ -1309,3 +1437,4 @@ int main(int argc, const char* argv[])
 	glfwTerminate();
 	return 0;
 }
+

@@ -5,7 +5,7 @@
 #include <malloc.h>
 #include <assert.h>
 #include <vector>
-#include <vulkan/spirv.h>
+#include <spirv-headers/spirv.h>
 
 /*****************************************************************************/
 VkShaderStageFlagBits getShaderStage(SpvExecutionModel model)
@@ -90,7 +90,7 @@ bool loadShader(Shader& pShader, VkDevice pDevice, const char* pFilename)
 		createInfo.codeSize = bytesSize;			// size in bytes
 		createInfo.pCode = (const uint32_t*)code;	// must be an array of codeSize/4
 
-		VkShaderModule shaderModule;
+		VkShaderModule shaderModule = {};
 		VK_CHECK(vkCreateShaderModule(pDevice, &createInfo, nullptr, &shaderModule));
 
 		pShader.module = shaderModule;
@@ -167,13 +167,13 @@ VkPipeline createGraphicsPipeline(VkDevice pDevice, VkPipelineCache pPipelineCac
 	VkPipelineInputAssemblyStateCreateInfo inputAssembly = { VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO };
 	//VkPipelineInputAssemblyStateCreateFlags    flags;
 	inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-	inputAssembly.primitiveRestartEnable = 0;
+	inputAssembly.primitiveRestartEnable = VK_FALSE;
 
 	VkPipelineViewportStateCreateInfo viewportState = { VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO };
 	//VkPipelineViewportStateCreateFlags    flags;
-	viewportState.viewportCount = 1;
+	viewportState.viewportCount = 1u;
 	//const VkViewport* pViewports;
-	viewportState.scissorCount = 1;
+	viewportState.scissorCount = 1u;
 	//const VkRect2D* pScissors;
 
 	VkPipelineRasterizationStateCreateInfo rasterState = { VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO };
@@ -184,10 +184,10 @@ VkPipeline createGraphicsPipeline(VkDevice pDevice, VkPipelineCache pPipelineCac
 	rasterState.cullMode = VK_CULL_MODE_NONE;
 	rasterState.frontFace = VK_FRONT_FACE_CLOCKWISE;
 	rasterState.depthBiasEnable = VK_FALSE;
-	rasterState.depthBiasConstantFactor = 0.0;;
-	rasterState.depthBiasClamp = 0.0;
-	rasterState.depthBiasSlopeFactor = 0.0;
-	rasterState.lineWidth = 1.0;
+	rasterState.depthBiasConstantFactor = 0.0f;;
+	rasterState.depthBiasClamp = 0.0f;
+	rasterState.depthBiasSlopeFactor = 0.0f;
+	rasterState.lineWidth = 1.0f;
 
 	VkPipelineMultisampleStateCreateInfo multisampleState = { VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO };
 	//VkPipelineMultisampleStateCreateFlags    multisampleState.flags;

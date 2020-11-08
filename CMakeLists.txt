@@ -10,7 +10,7 @@ project (VulkanRenderer)
 #    set( CMAKE_RUNTIME_OUTPUT_DIRECTORY_${OUTPUTCONFIG} ${CMAKE_HOME_DIRECTORY}/bin )
 #endforeach( OUTPUTCONFIG CMAKE_CONFIGURATION_TYPES )
 
-
+#set(CMAKE_DEBUG_POSTFIX d)
 
 # ThirdParty dependencies
 find_package(Vulkan REQUIRED)
