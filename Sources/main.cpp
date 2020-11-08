@@ -17,6 +17,11 @@
 #define FAST_OBJ_IMPLEMENTATION
 #include <../meshoptimizer/extern/fast_obj.h>
 
+#include "VulkanContext.h"
+#include "VulkanDevice.h"
+#include "VulkanSwapchain.h"
+#include "VulkanHelper.h"
+
 struct vec4
 {
 	float data[4];
@@ -277,144 +282,6 @@ VkDevice createDevice(VkInstance pInstance, VkPhysicalDevice pPhysicalDevice, ui
 	VK_CHECK(vkCreateDevice(pPhysicalDevice, &lDeviceCreateInfo, nullptr, &lDevice));
 
 	return lDevice;
-}
-
-VkSemaphore createSemaphore(VkDevice pDevice)
-{
-	VkSemaphoreCreateInfo lSemaphoreCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-	VkSemaphore lSemaphore;
-	VK_CHECK(vkCreateSemaphore(pDevice, &lSemaphoreCreateInfo, nullptr, &lSemaphore));
-
-	return lSemaphore;
-}
-
-VkFence createFence(VkDevice pDevice)
-{
-	VkFenceCreateInfo createInfo = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
-	createInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-
-	VkFence fence;
-	vkCreateFence(pDevice, &createInfo, nullptr, &fence);
-	return fence;
-}
-
-VkCommandPool createCommandPool(VkDevice pDevice, uint32_t pFamilyIndex)
-{
-	VkCommandPoolCreateInfo lCreateInfo = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
-	lCreateInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-	lCreateInfo.queueFamilyIndex = pFamilyIndex;
-	VkCommandPool lCommandPool;
-	VK_CHECK(vkCreateCommandPool(pDevice, &lCreateInfo, nullptr, &lCommandPool));
-	return lCommandPool;
-}
-
-VkImageView createImageView(VkDevice pDevice, VkImage pImage, VkFormat pFormat)
-{
-	VkImageViewCreateInfo lImageViewCreateInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
-	//VkImageViewCreateFlags     flags;
-	lImageViewCreateInfo.image = pImage;
-	lImageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-	lImageViewCreateInfo.format = pFormat;
-	lImageViewCreateInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
-	lImageViewCreateInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
-	lImageViewCreateInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
-	lImageViewCreateInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
-	lImageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	lImageViewCreateInfo.subresourceRange.baseMipLevel = 0;
-	lImageViewCreateInfo.subresourceRange.levelCount = 1;
-	lImageViewCreateInfo.subresourceRange.baseArrayLayer = 0;
-	lImageViewCreateInfo.subresourceRange.layerCount = 1;
-	VkImageView imageView;
-	VK_CHECK(vkCreateImageView(pDevice, &lImageViewCreateInfo, nullptr, &imageView));
-	return imageView;
-}
-
-VkRenderPass createRenderPass(VkDevice pDevice, VkFormat pFormat)
-{
-	VkAttachmentDescription attachmentDesc[1] = {};
-	attachmentDesc[0].flags;
-	attachmentDesc[0].format = pFormat; // swapChainImageFormat
-	attachmentDesc[0].samples = VK_SAMPLE_COUNT_1_BIT; // no msaa
-	attachmentDesc[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-	attachmentDesc[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-	attachmentDesc[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-	attachmentDesc[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	//Using VK_IMAGE_LAYOUT_UNDEFINED for initialLayout means that we don't care
-	// what previous layout the image was in. The caveat of this special value is 
-	// that the contents of the image are not guaranteed to be preserved,
-	// but that doesn't matter since we're going to clear it anyway
-	attachmentDesc[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	//attachmentDesc[0].initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL; // require a imageBarrier layout transition before vkCmdBeginRenderPass
-	attachmentDesc[0].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-
-	VkAttachmentReference colorAttachmentRef = {};
-	colorAttachmentRef.attachment = 0;	// Index in VkRenderPassCreateInfo::pAttachments
-	colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-	VkSubpassDescription subpassDesc = {};
-	//VkSubpassDescriptionFlags       flags;
-	subpassDesc.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-	//subpassDesc.inputAttachmentCount = 1;	// Attachments that are read from a shader
-	//subpassDesc.pInputAttachments = &colorAttachmentRef;
-	subpassDesc.colorAttachmentCount = 1;
-	subpassDesc.pColorAttachments = &colorAttachmentRef;
-	//subpassDesc.pResolveAttachments;	// Attachments used for multisampling color attachments
-	//subpassDesc.pDepthStencilAttachment;
-	//uint32_t                        preserveAttachmentCount;	// Attachments that are not used by this subpass, but for which the data must be preserved
-	//const uint32_t* pPreserveAttachments;
-
-	// Explicit dependency
-
-	// How to fill this to be ready for presentation?
-	// No need this for only one pass
-	VkSubpassDependency dependencies[2] = { };
-	dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
-	dependencies[0].dstSubpass = 0;
-	dependencies[0].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	dependencies[0].srcAccessMask = 0;
-	dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-	dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-	// implicitly defined dependency would cover this, but let's replace it with this explicitly defined dependency!
-	dependencies[1].srcSubpass = 0;
-	dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
-	dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	dependencies[1].dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-	dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-	dependencies[1].dstAccessMask = 0;
-	dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-	VkRenderPassCreateInfo createInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
-	//VkRenderPassCreateFlags           flags;
-	createInfo.attachmentCount = 1;
-	createInfo.pAttachments = attachmentDesc;
-	createInfo.subpassCount = 1;
-	createInfo.pSubpasses = &subpassDesc;
-	createInfo.dependencyCount = ARRAY_COUNT(dependencies);
-	createInfo.pDependencies = dependencies;
-
-	VkRenderPass renderPass;
-	VK_CHECK(vkCreateRenderPass(pDevice, &createInfo, nullptr, &renderPass));
-
-	return renderPass;
-}
-
-VkFramebuffer createFramebuffer(VkDevice pDevice, VkRenderPass pRenderPass, VkImageView* imageViews, uint32_t imageViewCount, uint32_t pWidth, uint32_t pHeight)
-{
-	VkFramebufferCreateInfo createInfo = { VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
-	//VkFramebufferCreateFlags    flags;
-	createInfo.renderPass = pRenderPass;
-	createInfo.attachmentCount = imageViewCount;
-	createInfo.pAttachments = imageViews;
-	createInfo.width = pWidth;
-	createInfo.height = pHeight;
-	createInfo.layers = 1;
-
-	VkFramebuffer framebuffer;
-	VK_CHECK(vkCreateFramebuffer(pDevice, &createInfo, nullptr, &framebuffer));
-
-	return framebuffer;
 }
 
 struct Vec3
@@ -722,70 +589,6 @@ void fullMemoryBarrier(VkCommandBuffer pCommandBuffer)
 */
 
 
-struct Swapchain
-{
-	VkSwapchainKHR swapchain;
-	uint32_t width, height;
-	uint32_t imageCount;
-	std::vector<VkImage> images;
-	std::vector<VkImageView> imageViews;
-	std::vector<VkFramebuffer> framebuffers;
-};
-
-void createSwapchain(Swapchain& pResult, VkSwapchainKHR pOldSwapChain, VkDevice pDevice, VkSurfaceKHR pSurface, VkSurfaceFormatKHR pSurfaceFormat, VkSurfaceCapabilitiesKHR pSurfaceCaps, uint32_t pQueueFamilyIndex, uint32_t pWidth, uint32_t pHeight, uint32_t pRequestSwapChainImage, VkRenderPass pRenderPass)
-{
-	VkSwapchainKHR swapChain = createSwapchain(pDevice, pSurface, pSurfaceFormat, pSurfaceCaps, pQueueFamilyIndex, pWidth, pHeight, pRequestSwapChainImage, pOldSwapChain);
-
-	uint32_t imageCount = 0;
-	VK_CHECK(vkGetSwapchainImagesKHR(pDevice, swapChain, &imageCount, nullptr));
-
-	std::vector<VkImage> images(imageCount);
-	VK_CHECK(vkGetSwapchainImagesKHR(pDevice, swapChain, &imageCount, images.data()));
-
-	std::vector<VkImageView> imageViews(imageCount);
-	for (uint32_t i = 0; i < imageCount; ++i)
-	{
-		imageViews[i] = createImageView(pDevice, images[i], pSurfaceFormat.format);
-	}
-
-	std::vector<VkFramebuffer>framebuffers(imageCount);
-	for (uint32_t i = 0; i < imageCount; ++i)
-	{
-		framebuffers[i] = createFramebuffer(pDevice, pRenderPass, &imageViews[i], 1, pWidth, pHeight);
-	}
-
-	pResult.swapchain = swapChain;
-	pResult.width = pWidth;
-	pResult.height = pHeight;
-	pResult.imageCount = imageCount;
-	pResult.images = images;
-	pResult.imageViews = imageViews;
-	pResult.framebuffers = framebuffers;
-}
-
-void destroySwapchain(VkDevice pDevice, const Swapchain& pSwapchain)
-{
-	//for (auto image : pSwapchain.images)
-	//	vkDestroyImage(pDevice, image, nullptr);
-
-	for (auto imageView : pSwapchain.imageViews)
-		vkDestroyImageView(pDevice, imageView, nullptr);
-
-	for (auto framebuffer : pSwapchain.framebuffers)
-		vkDestroyFramebuffer(pDevice, framebuffer, nullptr);
-
-	vkDestroySwapchainKHR(pDevice, pSwapchain.swapchain, nullptr);
-}
-
-void resizeSwapchain(Swapchain& pResult, VkSwapchainKHR pOldSwapChain, VkDevice pDevice, VkSurfaceKHR pSurface, VkSurfaceFormatKHR pSurfaceFormat, VkSurfaceCapabilitiesKHR pSurfaceCaps, uint32_t pQueueFamilyIndex, uint32_t pWidth, uint32_t pHeight, uint32_t pRequestSwapChainImage, VkRenderPass pRenderPass)
-{
-	Swapchain old = pResult;
-	createSwapchain(pResult, old.swapchain, pDevice, pSurface, pSurfaceFormat, pSurfaceCaps, pQueueFamilyIndex, pWidth, pHeight, pRequestSwapChainImage, pRenderPass);
-	VK_CHECK(vkDeviceWaitIdle(pDevice));
-	destroySwapchain(pDevice, old);
-}
-
-
 struct Buffer
 {
 	VkBuffer buffer;
@@ -796,27 +599,7 @@ struct Buffer
 };
 
 
-uint32_t selectMemoryType(const VkPhysicalDeviceMemoryProperties& pPhysicalMemoryProperties, uint32_t memoryTypeFilter, VkMemoryPropertyFlags properties )
-{
-	// The VkPhysicalDeviceMemoryProperties structure has two arrays memoryTypes and memoryHeaps.
-	// Memory heaps are distinct memory resources like dedicated VRAM and swap space in RAM for when VRAM runs out.
-	// The different types of memory exist within these heaps.
-	uint32_t memoryTypeIndex = ~0u;
-	for (uint32_t i = 0; i < pPhysicalMemoryProperties.memoryTypeCount; ++i)
-	{
-		if ((memoryTypeFilter & (1 << i))
-			&& (pPhysicalMemoryProperties.memoryTypes[i].propertyFlags & properties) == properties)
-		{
-			memoryTypeIndex = i;
-			break;
-		}
-	}
-
-	assert(memoryTypeIndex != ~0u  && "give optional flag and try to be less restrictive on memory type");
-	return memoryTypeIndex;
-}
-
-void createBuffer(Buffer& result, VkDevice pDevice, const VkPhysicalDeviceMemoryProperties& pPhysicalMemoryProperties, size_t pSize, VkBufferUsageFlags pUsage, VkMemoryPropertyFlags pProperties)
+void createBuffer(Buffer& result, VulkanDevice& pVulkanDevice, size_t pSize, VkBufferUsageFlags pUsage, VkMemoryPropertyFlags pProperties)
 {
 	VkBufferCreateInfo createInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
 	//VkBufferCreateFlags    flags;
@@ -827,24 +610,24 @@ void createBuffer(Buffer& result, VkDevice pDevice, const VkPhysicalDeviceMemory
 	//const uint32_t* pQueueFamilyIndices;
 
 	VkBuffer buffer;
-	VK_CHECK(vkCreateBuffer(pDevice, &createInfo, nullptr, &buffer));
+	VK_CHECK(vkCreateBuffer(pVulkanDevice.mLogicalDevice, &createInfo, nullptr, &buffer));
 
 	VkMemoryRequirements memoryRequirements = {};
-	vkGetBufferMemoryRequirements(pDevice, buffer, &memoryRequirements);
+	vkGetBufferMemoryRequirements(pVulkanDevice.mLogicalDevice, buffer, &memoryRequirements);
 
-	uint32_t memoryTypeIndex = selectMemoryType(pPhysicalMemoryProperties, memoryRequirements.memoryTypeBits, pProperties);
+	uint32_t memoryTypeIndex = pVulkanDevice.selectMemoryType(memoryRequirements.memoryTypeBits, pProperties);
 
 	VkMemoryAllocateInfo allocateInfo = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
 	allocateInfo.allocationSize = memoryRequirements.size;
 	allocateInfo.memoryTypeIndex = memoryTypeIndex;
 	VkDeviceMemory memory = {};
-	VK_CHECK(vkAllocateMemory(pDevice, &allocateInfo, nullptr, &memory));
+	VK_CHECK(vkAllocateMemory(pVulkanDevice.mLogicalDevice, &allocateInfo, nullptr, &memory));
 
 	// Here we can bind multiple data on same buffer with different offset
 	// It is recommended practice to allocate bigger chunks of memory and assign parts of them to particular resources
 	// Functions that allocate memory blocks, reserve and return parts of them (VkDeviceMemory + offset + size) to the user
 	// check vmaAllocator for this job
-	VK_CHECK(vkBindBufferMemory(pDevice, buffer, memory, 0)); // If the offset is non-zero, then it is required to be divisible by memoryRequirements.alignment
+	VK_CHECK(vkBindBufferMemory(pVulkanDevice.mLogicalDevice, buffer, memory, 0)); // If the offset is non-zero, then it is required to be divisible by memoryRequirements.alignment
 
 	void* data = 0;
 	// Here we do Persistent mapping (only if flag HOST_VISIBLE is present)
@@ -853,7 +636,7 @@ void createBuffer(Buffer& result, VkDevice pDevice, const VkPhysicalDeviceMemory
 	if
 		(pProperties & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
 	{
-		VK_CHECK(vkMapMemory(pDevice, memory, 0ull, VK_WHOLE_SIZE, 0ull, &data));
+		VK_CHECK(vkMapMemory(pVulkanDevice.mLogicalDevice, memory, 0ull, VK_WHOLE_SIZE, 0ull, &data));
 	}
 
 	result.buffer = buffer;
@@ -903,9 +686,44 @@ void destroyBuffer(VkDevice pDevice, const Buffer& pBuffer)
 	vkFreeMemory(pDevice, pBuffer.memory, nullptr);
 }
 
+void getWindowSize(GLFWwindow* pWindow, uint32_t& pWidth, uint32_t& pHeight)
+{
+	int lWidth, lHeight;
+	glfwGetWindowSize(pWindow, &lWidth, &lHeight);
+	pWidth = (uint32_t)lWidth;
+	pHeight = (uint32_t)lHeight;
+}
+
+
+void destroyFramebuffers(VkDevice pDevice, std::vector<VkFramebuffer>& pFramebuffers)
+{
+	for (auto&& lFramebuffer : pFramebuffers)
+	{
+		vkDestroyFramebuffer(pDevice, lFramebuffer, NULL);
+	}
+	pFramebuffers.clear();
+}
+
+void createSwapchainFramebuffer(VkDevice pDevice, VkRenderPass pRenderPass, VulkanSwapchain& pSwapchain, std::vector<VkFramebuffer>& pFramebuffers)
+{	
+	assert(pFramebuffers.size() == 0); // possible lost of handle ref
+	std::vector<VkFramebuffer> lSwapChainFramebuffer(pSwapchain.imageCount());
+	for (uint32_t i = 0; i < pSwapchain.imageCount(); ++i)
+	{
+		lSwapChainFramebuffer[i] = vkh::createFramebuffer(pDevice, pRenderPass, &pSwapchain.mImageViews[i], 1, pSwapchain.mWidth, pSwapchain.mHeight);
+	}
+
+	pFramebuffers.swap(lSwapChainFramebuffer);
+}
+
 // Entry point
 int main(int argc, const char* argv[])
 {
+	// Initial windows configuration
+	uint32_t lWindowWidth = 512, lWindowHeight = 512;
+	uint32_t lDesiredSwapchainImageCount = 2;
+	bool lDesiredVSync = false;
+
 	VK_CHECK(volkInitialize());
 
 	printf("Hello VulkanRenderer\n");
@@ -914,85 +732,35 @@ int main(int argc, const char* argv[])
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);	// MUST BE SET or SwapChain creation fail
 	glfwWindowHint(GLFW_DECORATED, GLFW_TRUE);
 
-	VkInstance lVulkanInstance = createInstance();
 
-	volkLoadInstance(lVulkanInstance);
-
+	VulkanContext lVulkanInstance;
+	lVulkanInstance.createInstance();
+	lVulkanInstance.enumeratePhysicalDevices();
+	VkPhysicalDevice lPhysicalDevice = lVulkanInstance.pickPhysicalDevice(VK_QUEUE_GRAPHICS_BIT);
 
 #ifdef _DEBUG
 	registerDebugMessenger(lVulkanInstance);
 #endif
 
-	// Enumerate Device
-	VkPhysicalDevice lPhysicalDevices[16];
-	uint32_t lPhysicalDevicesCount = ARRAY_COUNT(lPhysicalDevices);
-	VK_CHECK(vkEnumeratePhysicalDevices(lVulkanInstance, &lPhysicalDevicesCount, lPhysicalDevices));
-	VkPhysicalDevice lPhysicalDevice = pickPhysicalDevice(lPhysicalDevicesCount, lPhysicalDevices);
-
-	VkPhysicalDeviceProperties lPhysicalDeviceProps = {};
-	vkGetPhysicalDeviceProperties(lPhysicalDevice, &lPhysicalDeviceProps);
-
-
-	// Find a graphics capable queue
-	uint32_t lGraphicsQueueFamilyIndex = 0;
-	findQueueFamilyIndex(lPhysicalDevice, &lGraphicsQueueFamilyIndex, VK_QUEUE_GRAPHICS_BIT);
-	
-	// Create logical device
-	VkDevice lDevice = createDevice(lVulkanInstance, lPhysicalDevice, &lGraphicsQueueFamilyIndex);
-
-	//VolkDeviceTable lVolkDeviceTable;
-	//volkLoadDeviceTable(&lVolkDeviceTable, lDevice);
-
-	// Retrieve the graphics queue
-	VkQueue lGraphicsQueue;
-	vkGetDeviceQueue(lDevice, lGraphicsQueueFamilyIndex, 0, &lGraphicsQueue);
-	
-	// Retrieve the graphics queue
-	uint32_t lTransfertQueueFamilyIndex = 0;
-	findQueueFamilyIndex(lPhysicalDevice, &lTransfertQueueFamilyIndex, VK_QUEUE_TRANSFER_BIT);
-	VkQueue lTransfertQueue;
-	vkGetDeviceQueue(lDevice, lTransfertQueueFamilyIndex, 0, &lTransfertQueue);
-
+	VulkanDevice lDevice(lPhysicalDevice);
+	lDevice.createLogicalDevice(VK_QUEUE_GRAPHICS_BIT /*| VK_QUEUE_TRANSFER_BIT*/);
 
 	// Surface creation are platform specific
-	GLFWwindow* lWindow = glfwCreateWindow(512, 512, "VulkanRenderer", 0, 0);
+	GLFWwindow* lWindow = glfwCreateWindow(lWindowWidth, lWindowHeight, "VulkanRenderer", 0, 0);
 	assert(lWindow);
-
 	glfwSetWindowSizeCallback(lWindow, window_size_callback);
 
-	VkSurfaceKHR lSurface = createSurface(lVulkanInstance, lWindow);
 
-	VkBool32 lPresentationSupported = false;
-	VK_CHECK(vkGetPhysicalDeviceSurfaceSupportKHR(lPhysicalDevice, lGraphicsQueueFamilyIndex, lSurface, &lPresentationSupported));
-	assert(lPresentationSupported);
+	
+	getWindowSize(lWindow, lWindowWidth, lWindowHeight);
 
-	VkSurfaceCapabilitiesKHR lSurfaceCaps;
-	VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(lPhysicalDevice, lSurface, &lSurfaceCaps));
+	VulkanSwapchain  lVulkanSwapchain(&lVulkanInstance, &lDevice);
+	lVulkanSwapchain.initSurface((void*)GetModuleHandle(0), (void*)glfwGetWin32Window(lWindow));
+	lVulkanSwapchain.createSwapchain(lWindowWidth, lWindowHeight, lDesiredSwapchainImageCount, lDesiredVSync);
 
-	// What kind of memory are available on this device
-	VkPhysicalDeviceMemoryProperties lPhysicalMemoryProperties;
-	vkGetPhysicalDeviceMemoryProperties(lPhysicalDevice, &lPhysicalMemoryProperties);
 
-	// Query device surface format available
-	uint32_t lFormatCount;
-	VK_CHECK(vkGetPhysicalDeviceSurfaceFormatsKHR(lPhysicalDevice, lSurface, &lFormatCount, nullptr));
-	VkSurfaceFormatKHR* lFormats = (VkSurfaceFormatKHR*)_alloca(lFormatCount * sizeof(VkSurfaceFormatKHR));	
-	VK_CHECK(vkGetPhysicalDeviceSurfaceFormatsKHR(lPhysicalDevice, lSurface, &lFormatCount, lFormats));
-	VkSurfaceFormatKHR lSurfaceFormat = lFormats[0]; // todo : clean that
-	uint32_t lPresentModeCount;
-	VK_CHECK(vkGetPhysicalDeviceSurfacePresentModesKHR(lPhysicalDevice, lSurface, &lPresentModeCount, nullptr));
-	VkPresentModeKHR* lPresentModes = (VkPresentModeKHR*)_alloca(lPresentModeCount * sizeof(VkPresentModeKHR));
-	VK_CHECK(vkGetPhysicalDeviceSurfacePresentModesKHR(lPhysicalDevice, lSurface, &lPresentModeCount, lPresentModes));
 
-	// Create the swap chain
-	int lWindowWidth = 0, lWindowHeight = 0;
-	glfwGetWindowSize(lWindow, &lWindowWidth, &lWindowHeight); // TODO: shortcut, window size and swapchain image size may be different !!!
-	uint32_t lSwapchainImageCount = 2;
-
-	VkRenderPass lRenderPass = createRenderPass(lDevice, lSurfaceFormat.format);
-
-	Swapchain lSwapchain;
-	createSwapchain(lSwapchain, VK_NULL_HANDLE, lDevice, lSurface, lSurfaceFormat, lSurfaceCaps, lGraphicsQueueFamilyIndex, lWindowWidth, lWindowHeight, 2, lRenderPass);
+	VkRenderPass lRenderPass = vkh::createRenderPass(lDevice, lVulkanSwapchain.mColorFormat);
 
 	
 	/*
@@ -1025,16 +793,14 @@ int main(int argc, const char* argv[])
 
 	size_t lChunkSize = 16 * 1024 * 1024;
 
-
-
 	// TODO : a stage buffer to copy data from CPU to GPU(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT ) memory trough vkCmdCopyBuffer
 	// At the moment
 	Buffer lStageBuffer = {};
-	createBuffer(lStageBuffer, lDevice, lPhysicalMemoryProperties, lChunkSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+	createBuffer(lStageBuffer, lDevice, lChunkSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 	Buffer lMeshVertexBuffer = {};
-	createBuffer(lMeshVertexBuffer, lDevice, lPhysicalMemoryProperties, lChunkSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+	createBuffer(lMeshVertexBuffer, lDevice, lChunkSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 	Buffer lMeshIndexBuffer = {};
-	createBuffer(lMeshIndexBuffer, lDevice, lPhysicalMemoryProperties, lChunkSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+	createBuffer(lMeshIndexBuffer, lDevice, lChunkSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
 	VkVertexInputBindingDescription binding = {};
 	binding.binding = 0;
@@ -1069,12 +835,12 @@ int main(int argc, const char* argv[])
 
 	Shader lMeshVertexShader;
 	lSuccess = loadShader(lMeshVertexShader, lDevice, "../../Shaders/mesh.vert.glsl.spv");
-	assert(lSuccess, "Can't load vertex program");
+	assert(lSuccess && "Can't load vertex program");
 	
 
 	Shader lMeshFragmentShader;
 	lSuccess = loadShader(lMeshFragmentShader, lDevice, "../../Shaders/mesh.frag.glsl.spv");
-	assert(lSuccess, "Can't load fragment program");
+	assert(lSuccess && "Can't load fragment program");
 
 
 	// HERE DESCRIPTOR LABOR BEGIN
@@ -1094,10 +860,10 @@ int main(int argc, const char* argv[])
 
 	// Double buffered
 	// TODO : as an exercise, allocate Only one UBO and use offset
-	std::vector<Buffer> uniformBuffers(lSwapchainImageCount);
-	for (uint32_t i = 0; i < lSwapchainImageCount; ++i)
+	std::vector<Buffer> uniformBuffers(lVulkanSwapchain.imageCount());
+	for (uint32_t i = 0; i < lVulkanSwapchain.imageCount(); ++i)
 	{
-		createBuffer(uniformBuffers[i], lDevice, lPhysicalMemoryProperties, sizeof(Object), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT /*| VK_MEMORY_PROPERTY_HOST_COHERENT_BIT*/);
+		createBuffer(uniformBuffers[i], lDevice, sizeof(Object), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT /*| VK_MEMORY_PROPERTY_HOST_COHERENT_BIT*/);
 		((Object*)uniformBuffers[i].data)->color[0] = 1.0f;
 		((Object*)uniformBuffers[i].data)->color[1] = 0.0f;
 		((Object*)uniformBuffers[i].data)->color[2] = 0.0f;
@@ -1111,13 +877,13 @@ int main(int argc, const char* argv[])
 	// And for each SwapChainImage for double buffer (not sure????)
 	VkDescriptorPoolSize poolSize = {};
 	poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-	poolSize.descriptorCount = static_cast<uint32_t>(lSwapchainImageCount);
+	poolSize.descriptorCount = static_cast<uint32_t>(lVulkanSwapchain.imageCount());
 
 	VkDescriptorPoolCreateInfo poolInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
 	//The structure has an optional flag similar to command pools that determines if individual descriptor sets can be freed or not: VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT.
 	// We're not going to touch the descriptor set after creating it, so we don't need this flag.You can leave flags to its default value of 0.
 	//VkDescriptorPoolCreateFlags    flags;
-	poolInfo.maxSets = lSwapchainImageCount; // can't access the same set from multiple CommandBuffer? creater one for each CommandBuffer
+	poolInfo.maxSets = lVulkanSwapchain.imageCount(); // can't access the same set from multiple CommandBuffer? creater one for each CommandBuffer
 	poolInfo.poolSizeCount = 1;
 	poolInfo.pPoolSizes = &poolSize;
 
@@ -1126,17 +892,17 @@ int main(int argc, const char* argv[])
 
 	// In our case we will create one descriptor set for each swap chain image, all with the same layout.
 	// Unfortunately we do need all the copies of the layout because the next function expects an array matching the number of sets.
-	std::vector<VkDescriptorSetLayout> layouts(lSwapchainImageCount, descriptorSetLayout);
+	std::vector<VkDescriptorSetLayout> layouts(lVulkanSwapchain.imageCount(), descriptorSetLayout);
 	VkDescriptorSetAllocateInfo allocInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
 	allocInfo.descriptorPool = descriptorPool;
-	allocInfo.descriptorSetCount = lSwapchainImageCount;
+	allocInfo.descriptorSetCount = lVulkanSwapchain.imageCount();
 	allocInfo.pSetLayouts = layouts.data();
 
 	std::vector<VkDescriptorSet> descriptorSets;
-	descriptorSets.resize(lSwapchainImageCount);
+	descriptorSets.resize(lVulkanSwapchain.imageCount());
 	VK_CHECK(vkAllocateDescriptorSets(lDevice, &allocInfo, descriptorSets.data()));
 
-	for (size_t i = 0; i < lSwapchainImageCount; i++) {
+	for (size_t i = 0; i < lVulkanSwapchain.imageCount(); i++) {
 		VkDescriptorBufferInfo bufferInfo = {};
 		bufferInfo.buffer = uniformBuffers[i].buffer;
 		bufferInfo.offset = 0;
@@ -1187,10 +953,10 @@ int main(int argc, const char* argv[])
 	//VkPipelineCache lPipelineCache = 0;
 
 
-	VkSemaphore lAcquireSemaphore = createSemaphore(lDevice);
-	VkSemaphore lReleaseSemaphore = createSemaphore(lDevice);
+	VkSemaphore lAcquireSemaphore = vkh::createSemaphore(lDevice);
+	VkSemaphore lReleaseSemaphore = vkh::createSemaphore(lDevice);
 
-	VkCommandPool lCommandPool = createCommandPool(lDevice, lGraphicsQueueFamilyIndex);
+	VkCommandPool lCommandPool = vkh::createCommandPool(lDevice, lDevice.getQueueFamilyIndex(VulkanQueueType::Graphics));
 
 
 	const uint32_t COMMAND_BUFFER_COUNT = 2;
@@ -1204,20 +970,25 @@ int main(int argc, const char* argv[])
 	VkFence lCommandBufferFences[COMMAND_BUFFER_COUNT] = {};
 	for (int i = 0; i < COMMAND_BUFFER_COUNT; ++i)
 	{
-		lCommandBufferFences[i] = createFence(lDevice);
+		lCommandBufferFences[i] = vkh::createFence(lDevice);
 	}
 
 	uint32_t lQueryCount = 16;
 	VkQueryPool lTimeStampQueries = createQueryPool(lDevice, lQueryCount);
 	
 	// At the moment do a hard lock upload
-	uploadBuffer(lDevice, lCommandPool, lCommandBuffers[0], lTransfertQueue, lStageBuffer, lMeshVertexBuffer, (void*)lMesh.vertices.data(), lMesh.vertices.size() * sizeof(Vertex));
-	uploadBuffer(lDevice, lCommandPool, lCommandBuffers[0], lTransfertQueue, lStageBuffer, lMeshIndexBuffer, (void*)lMesh.indices.data(), lMesh.indices.size() * sizeof(uint32_t));
+	uploadBuffer(lDevice, lCommandPool, lCommandBuffers[0], lDevice.getQueue(VulkanQueueType::Transfert), lStageBuffer, lMeshVertexBuffer, (void*)lMesh.vertices.data(), lMesh.vertices.size() * sizeof(Vertex));
+	uploadBuffer(lDevice, lCommandPool, lCommandBuffers[0], lDevice.getQueue(VulkanQueueType::Transfert), lStageBuffer, lMeshIndexBuffer, (void*)lMesh.indices.data(), lMesh.indices.size() * sizeof(uint32_t));
 
 	uint64_t frameCount = 0;
 	double cpuTotalTime = 0.0;
 	uint64_t gpuTotalTime = 0;
 	double cpuTimeAvg = 0;
+
+
+	std::vector<VkFramebuffer> lSwapchainFramebuffers;
+	createSwapchainFramebuffer(lDevice, lRenderPass, lVulkanSwapchain, lSwapchainFramebuffers);
+
 
 	// MainLoop
 	uint32_t lCommandBufferIndex = COMMAND_BUFFER_COUNT-1;
@@ -1232,7 +1003,10 @@ int main(int argc, const char* argv[])
 		{
 			lWindowWidth = lNewWindowWidth;
 			lWindowHeight = lNewWindowHeight;
-			resizeSwapchain(lSwapchain, lSwapchain.swapchain, lDevice, lSurface, lSurfaceFormat, lSurfaceCaps, lGraphicsQueueFamilyIndex, lWindowWidth, lWindowHeight, 2, lRenderPass);
+			lVulkanSwapchain.resizeSwapchain(lWindowWidth, lWindowHeight, lDesiredSwapchainImageCount, lDesiredVSync);
+
+			destroyFramebuffers(lDevice, lSwapchainFramebuffers);
+			createSwapchainFramebuffer(lDevice, lRenderPass, lVulkanSwapchain, lSwapchainFramebuffers);
 		}
 
 		lCommandBufferIndex = (++lCommandBufferIndex) % COMMAND_BUFFER_COUNT;
@@ -1240,7 +1014,7 @@ int main(int argc, const char* argv[])
 		VK_CHECK(vkResetFences(lDevice, 1, &lCommandBufferFences[lCommandBufferIndex]));
 
 		uint32_t lImageIndex = 0;
-		VK_CHECK(vkAcquireNextImageKHR(lDevice, lSwapchain.swapchain, ~0ull, lAcquireSemaphore, VK_NULL_HANDLE, &lImageIndex));
+		lVulkanSwapchain.acquireNextImage(lAcquireSemaphore, &lImageIndex);
 
 		//VK_CHECK(vkResetCommandPool(lDevice, lCommandPool, 0));
 		VK_CHECK(vkResetCommandBuffer(lCommandBuffers[lCommandBufferIndex], 0));
@@ -1257,7 +1031,7 @@ int main(int argc, const char* argv[])
 
 		VkRenderPassBeginInfo renderPassInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
 		renderPassInfo.renderPass = lRenderPass;
-		renderPassInfo.framebuffer = lSwapchain.framebuffers[lImageIndex];
+		renderPassInfo.framebuffer = lSwapchainFramebuffers[lImageIndex];
 		renderPassInfo.renderArea = { {0,0} , {(uint32_t)lWindowWidth, (uint32_t)lWindowHeight} };
 		renderPassInfo.clearValueCount = 1;
 		renderPassInfo.pClearValues = &lClearColor;
@@ -1344,16 +1118,10 @@ int main(int argc, const char* argv[])
 		lSubmitInfo.pCommandBuffers = &lCommandBuffers[lCommandBufferIndex];
 		lSubmitInfo.signalSemaphoreCount = 1;
 		lSubmitInfo.pSignalSemaphores = &lReleaseSemaphore;
-		VK_CHECK(vkQueueSubmit(lGraphicsQueue, 1, &lSubmitInfo, lCommandBufferFences[lCommandBufferIndex]));
+		VK_CHECK(vkQueueSubmit(lDevice.getQueue(VulkanQueueType::Graphics), 1, &lSubmitInfo, lCommandBufferFences[lCommandBufferIndex]));
 
-		VkPresentInfoKHR lPresentInfo = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
-		lPresentInfo.waitSemaphoreCount = 1;
-		lPresentInfo.pWaitSemaphores = &lReleaseSemaphore;
-		lPresentInfo.swapchainCount = 1;		// one per window?
-		lPresentInfo.pSwapchains = &lSwapchain.swapchain;
-		lPresentInfo.pImageIndices = &lImageIndex;
-		//VkResult* pResults;
-		VK_CHECK(vkQueuePresentKHR(lGraphicsQueue, &lPresentInfo));
+
+		lVulkanSwapchain.queuePresent(lDevice.getQueue(VulkanQueueType::Graphics), lImageIndex, lReleaseSemaphore);
 
 		// TODO : Barrier/Fence on CommandBuffer or DoubleBuffered CommandBuffer with sync ?
 		//VK_CHECK(vkDeviceWaitIdle(lDevice));
@@ -1363,8 +1131,8 @@ int main(int argc, const char* argv[])
 		VkPerformanceCounterResultKHR queryResults[2] = {};
 		vkGetQueryPoolResults(lDevice, lTimeStampQueries, 0, 2, sizeof(queryResults), queryResults, sizeof(queryResults[0]), VK_QUERY_RESULT_64_BIT /*| VK_QUERY_RESULT_WAIT_BIT*/);
 
-		double gpuFrameBegin = double(queryResults[0].uint64) * lPhysicalDeviceProps.limits.timestampPeriod * 1e-6; // ms
-		double gpuFrameEnd = double(queryResults[1].uint64) * lPhysicalDeviceProps.limits.timestampPeriod * 1e-6;
+		double gpuFrameBegin = double(queryResults[0].uint64) * lDevice.mPhysicalDeviceProperties.limits.timestampPeriod * 1e-6; // ms
+		double gpuFrameEnd = double(queryResults[1].uint64) * lDevice.mPhysicalDeviceProperties.limits.timestampPeriod * 1e-6;
 
 		double cpuFrameEnd = glfwGetTime() * 1000.0; // ms
 		cpuTotalTime += cpuFrameEnd - cpuFrameBegin;
@@ -1374,7 +1142,7 @@ int main(int argc, const char* argv[])
 		if(cpuTotalTime > 1000.0f)
 		{
 			double avgCpu = cpuTotalTime / frameCount;
-			double avgGpu = (double(gpuTotalTime) * lPhysicalDeviceProps.limits.timestampPeriod * 1e-6) / frameCount;
+			double avgGpu = (double(gpuTotalTime) * lDevice.mPhysicalDeviceProperties.limits.timestampPeriod * 1e-6) / frameCount;
 
 			char title[256];
 			sprintf(title, "cpu=%.1f ms; gpu: %.1f ms", avgCpu, avgGpu);
@@ -1388,13 +1156,12 @@ int main(int argc, const char* argv[])
 	
 	VK_CHECK(vkDeviceWaitIdle(lDevice));
 
+
 	vkDestroyDescriptorPool(lDevice, descriptorPool, nullptr);
 
 	vkDestroyDescriptorSetLayout(lDevice, descriptorSetLayout, nullptr);
 
 	vkDestroyCommandPool(lDevice, lCommandPool, nullptr);
-
-	destroySwapchain(lDevice, lSwapchain);
 
 	vkDestroyDescriptorSetLayout(lDevice, meshDescriptorSetLayout, nullptr);
 	vkDestroyDescriptorUpdateTemplate(lDevice, meshUpdateTpl, nullptr);
@@ -1423,9 +1190,13 @@ int main(int argc, const char* argv[])
 
 	vkDestroyQueryPool(lDevice, lTimeStampQueries, nullptr);
 
-	vkDestroySurfaceKHR(lVulkanInstance, lSurface, nullptr);
+
+	destroyFramebuffers(lDevice, lSwapchainFramebuffers);
+	lVulkanSwapchain.cleanUp();
+	
 
 	vkDestroyDevice(lDevice, nullptr);
+
 
 #ifdef _DEBUG
 	unregisterDebugMessenger(lVulkanInstance, gDebugMessenger);

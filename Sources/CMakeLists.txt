@@ -4,7 +4,10 @@ set(sources
     main.cpp
     vk_common.h
     Shaders.h Shaders.cpp
-    Swapchain.h Swapchain.cpp)
+    VulkanContext.h VulkanContext.cpp
+    VulkanDevice.h VulkanDevice.cpp
+    VulkanHelper.h VulkanHelper.cpp
+    VulkanSwapchain.h VulkanSwapchain.cpp)
 
 source_group("Sources" FILES ${sources})
 

@@ -1,3 +1,5 @@
+#pragma once
+
 #include <volk.h>
 
 #define VK_CHECK(call_) do { VkResult result_ = call_;	assert(result_ == VK_SUCCESS); } while(0);
@@ -6,3 +8,22 @@
 // Allocation on stack
 // Automatically destroyed when exit function
 #define STACK_ALLOC(TYPE_,COUNT_) (TYPE_*)_alloca(sizeof(TYPE_) * COUNT_)
+
+// Don't change order/count or report modification everywhere
+struct VulkanQueueType
+{
+    enum Enum : uint8_t
+    {
+        Graphics,        
+        Compute,
+        Transfert,
+        Count
+    };
+};
+
+inline VkQueueFlagBits ToVkQueueFlagBits(VulkanQueueType::Enum pType)
+{    
+    const VkQueueFlagBits cTo[] = { VK_QUEUE_GRAPHICS_BIT, VK_QUEUE_COMPUTE_BIT, VK_QUEUE_TRANSFER_BIT };
+    static_assert(ARRAY_COUNT(cTo) == (int)VulkanQueueType::Count, "");
+    return cTo[(int)pType];
+}
