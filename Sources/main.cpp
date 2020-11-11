@@ -41,6 +41,19 @@ struct mat4
 #include <../../Shaders/mesh.h>
 
 
+// Test image
+uint8_t rgb2x2[][3] =
+{
+	{ 0xFF, 0x00, 0x00 }, { 0x00, 0xFF, 0x00 },
+	{ 0x00, 0x00, 0xFF }, { 0xFF, 0xFF, 0xFF }
+};
+
+uint8_t rgba2x2[][4] =
+{
+	{ 0xFF, 0x00, 0x00, 0xFF }, { 0x00, 0xFF, 0x00, 0xFF },
+	{ 0x00, 0x00, 0xFF, 0xFF }, { 0xFF, 0xFF, 0xFF, 0xFF }
+};
+
 /******************************************************************************/
 /******************************************************************************/
 /******************************************************************************/
@@ -515,11 +528,11 @@ VkImageMemoryBarrier imageBarrier(VkImage pImage,
 	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barrier.image = pImage;
-	barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT; // shorcut as we onl have color at the moment
+	barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT; // shorcut as we only have color at the moment
 	barrier.subresourceRange.baseMipLevel = 0;
-	barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;	// Seem android have bug with this constant
+	barrier.subresourceRange.levelCount = 1;//VK_REMAINING_MIP_LEVELS;	// Seem android have bug with this constant
 	barrier.subresourceRange.baseArrayLayer = 0;
-	barrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
+	barrier.subresourceRange.layerCount = 1;//VK_REMAINING_ARRAY_LAYERS;
 
 	return barrier;
 }
@@ -588,13 +601,12 @@ void fullMemoryBarrier(VkCommandBuffer pCommandBuffer)
 }
 */
 
-
 struct Buffer
 {
 	VkBuffer buffer;
 	VkDeviceMemory memory;
 
-	void* data;	// persistent map to cpu memory
+	void* data;	// if not null, persistant mapped data (in COHERENT)
 	size_t size;
 };
 
@@ -645,10 +657,151 @@ void createBuffer(Buffer& result, VulkanDevice& pVulkanDevice, size_t pSize, VkB
 	result.data = data;
 }
 
-void uploadBuffer(VkDevice pDevice, VkCommandPool pCommandPool, VkCommandBuffer pCommandBuffer, VkQueue pCopyQueue, const Buffer& pSrc, const Buffer& pDst, void* pData, size_t pSize)
+
+struct Image
 {
+	VkFormat format;
+	VkImage image;
+	VkDeviceMemory memory;
+	uint32_t width, height;
+
+	void* data; // at the moment persistent map, if not, u have to Map/Unmap in the uploadBufferToImage
+	size_t size;
+};
+
+void createImage(Image& result, VulkanDevice pDevice, VkFormat pFormat, uint32_t pWidth, uint32_t pHeight)
+{
+	VkImageCreateInfo lImageInfo = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+	//const void* pNext;
+	//VkImageCreateFlags       flags;
+	lImageInfo.imageType = VK_IMAGE_TYPE_2D;
+	lImageInfo.format = pFormat;
+	lImageInfo.extent.width = pWidth;
+	lImageInfo.extent.height = pHeight;
+	lImageInfo.extent.depth = 1;
+	lImageInfo.mipLevels = 1;
+	lImageInfo.arrayLayers = 1;
+	lImageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+	lImageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+	lImageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT; // VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT for render pass?
+	lImageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE; // not shared trough multiple queue
+	//uint32_t                 queueFamilyIndexCount; // not need in VK_SHARING_MODE_EXCLUSIVE
+	//const uint32_t* pQueueFamilyIndices;
+	lImageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+	VkImage lImage = {};
+	VK_CHECK(vkCreateImage(pDevice, &lImageInfo, NULL, &lImage));
+
+	VkMemoryRequirements lImageMemoryRequirements;
+	vkGetImageMemoryRequirements(pDevice, lImage, &lImageMemoryRequirements);
+
+	VkMemoryAllocateInfo lImageAllocateInfo = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
+	//VkStructureType    sType;
+	//const void* pNext;
+	lImageAllocateInfo.allocationSize = lImageMemoryRequirements.size;
+	lImageAllocateInfo.memoryTypeIndex = pDevice.selectMemoryType(lImageMemoryRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+	VkDeviceMemory lImageMemory;
+	VK_CHECK(vkAllocateMemory(pDevice, &lImageAllocateInfo, NULL, &lImageMemory));
+
+	VK_CHECK(vkBindImageMemory(pDevice, lImage, lImageMemory, 0));
+
+	
+	result.image = lImage;
+	result.memory = lImageMemory;
+	result.format = pFormat;	
+	result.width = pWidth;
+	result.height = pHeight;
+	result.data = NULL;
+	result.size = lImageMemoryRequirements.size;
+}
+
+// Copy pHostData to the pSrc.data stage buffer into pDst using vkCmdCopyBuffer
+void uploadBufferToImage(VkDevice pDevice, VkCommandPool pCommandPool, VkCommandBuffer pCommandBuffer, VkQueue pCopyQueue, const Buffer& pSrc, const Image& pDst, void* pHostData, size_t pHostDataSize)
+{
+#pragma message("TODO : robust way to identify persistent map or not")
+
+	assert(pHostDataSize <= pSrc.size);
 	// pDst.data is a persistent mapped buffer
-	memcpy(pSrc.data, pData, pSize);
+	if
+		(pSrc.data)
+	{
+		// At the moment we conisder the data is already map in VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+		memcpy(pSrc.data, pHostData, pHostDataSize);
+	}
+	else
+	{
+		void* lData = NULL;
+		VK_CHECK(vkMapMemory(pDevice, pSrc.memory, 0, VK_WHOLE_SIZE, 0, &lData));
+		memcpy(lData, pHostData, pHostDataSize);
+		vkUnmapMemory(pDevice, pSrc.memory);
+	}
+
+	VK_CHECK(vkResetCommandPool(pDevice, pCommandPool, 0));
+	VK_CHECK(vkResetCommandBuffer(pCommandBuffer, 0));
+
+	VkCommandBufferBeginInfo lBeginInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+	lBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+	VK_CHECK(vkBeginCommandBuffer(pCommandBuffer, &lBeginInfo));
+
+	VkBufferImageCopy regions;
+	regions.bufferOffset = 0;
+	regions.bufferRowLength = 0;
+	regions.bufferImageHeight = 0;
+	regions.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	regions.imageSubresource.mipLevel = 0;
+	regions.imageSubresource.baseArrayLayer = 0;
+	regions.imageSubresource.layerCount = 1;
+	regions.imageOffset = { 0, 0, 0 };
+	regions.imageExtent = { pDst.width, pDst.height, 1 };
+
+	
+	// In our actual case we are always in VK_IMAGE_LAYOUT_UNDEFINED cause we jsut upload it one time and never touch it
+	// Later we should store the layout and create a different barrier.
+	// for example if we wan't to update the image, it will be probably in a VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL layout
+	VkImageMemoryBarrier lImageBarrier = imageBarrier(pDst.image,	0, VK_ACCESS_TRANSFER_WRITE_BIT,
+																	VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+	vkCmdPipelineBarrier(pCommandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, NULL, 0, NULL, 1, &lImageBarrier);
+
+	vkCmdCopyBufferToImage(pCommandBuffer, pSrc.buffer, pDst.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &regions);
+
+	lImageBarrier = imageBarrier(pDst.image, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+#pragma message("TODO : manage texture access in vertex pipeline")
+	vkCmdPipelineBarrier(pCommandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, /*VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |*/ VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, NULL, 0, NULL, 1, &lImageBarrier);
+
+	VK_CHECK(vkEndCommandBuffer(pCommandBuffer));
+
+
+	// https://github.com/KhronosGroup/Vulkan-Docs/wiki/Synchronization-Examples
+	VkPipelineStageFlags lSubmitStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT; // why
+	VkSubmitInfo lSubmitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+	lSubmitInfo.commandBufferCount = 1;
+	lSubmitInfo.pCommandBuffers = &pCommandBuffer;
+	VK_CHECK(vkQueueSubmit(pCopyQueue, 1, &lSubmitInfo, nullptr));
+
+#pragma message ("WARNING hard lock to remove")
+	VK_CHECK(vkDeviceWaitIdle(pDevice));
+
+}
+
+// Copy pHostData to the pSrc.data stage buffer into pDst using vkCmdCopyBuffer
+void uploadBuffer(VkDevice pDevice, VkCommandPool pCommandPool, VkCommandBuffer pCommandBuffer, VkQueue pCopyQueue, const Buffer& pSrc, const Buffer& pDst, const void* pHostData, size_t pHostDataSize)
+{
+#pragma message("TODO : robust way to identify persistent map or not")
+	// pDst.data is a persistent mapped buffer
+	if
+		(pSrc.data)
+	{
+		// At the moment we conisder the data is already map in VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+		memcpy(pSrc.data, pHostData, pHostDataSize);
+	}
+	else
+	{
+		void* lData = NULL;
+		VK_CHECK(vkMapMemory(pDevice, pSrc.memory, 0, VK_WHOLE_SIZE, 0, &lData));
+		memcpy(lData, pHostData, pHostDataSize);
+		vkUnmapMemory(pDevice, pSrc.memory);
+	}
 	
 	VK_CHECK(vkResetCommandPool(pDevice, pCommandPool, 0));
 	VK_CHECK(vkResetCommandBuffer(pCommandBuffer, 0));
@@ -657,7 +810,8 @@ void uploadBuffer(VkDevice pDevice, VkCommandPool pCommandPool, VkCommandBuffer 
 	lBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 	VK_CHECK(vkBeginCommandBuffer(pCommandBuffer, &lBeginInfo));
 
-	VkBufferCopy regions = { 0, 0, VkDeviceSize(pSize) };
+#pragma message("Should be device data size ?")
+	VkBufferCopy regions = { 0, 0, VkDeviceSize(pHostDataSize) };
 	vkCmdCopyBuffer(pCommandBuffer, pSrc.buffer, pDst.buffer, 1, &regions);
 
 	VkBufferMemoryBarrier copyBufferBarrier = bufferBarrier(pDst.buffer, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT);
@@ -736,14 +890,14 @@ int main(int argc, const char* argv[])
 	VulkanContext lVulkanInstance;
 	lVulkanInstance.createInstance();
 	lVulkanInstance.enumeratePhysicalDevices();
-	VkPhysicalDevice lPhysicalDevice = lVulkanInstance.pickPhysicalDevice(VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_TRANSFER_BIT);
+	VkPhysicalDevice lPhysicalDevice = lVulkanInstance.pickPhysicalDevice(VK_QUEUE_GRAPHICS_BIT /*| VK_QUEUE_TRANSFER_BIT*/);
 
 #ifdef _DEBUG
 	registerDebugMessenger(lVulkanInstance);
 #endif
 
 	VulkanDevice lDevice(lPhysicalDevice);
-	lDevice.createLogicalDevice(VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_TRANSFER_BIT);
+	lDevice.createLogicalDevice(VK_QUEUE_GRAPHICS_BIT /*| VK_QUEUE_TRANSFER_BIT*/); // For the moment use only one queue
 
 	// Surface creation are platform specific
 	GLFWwindow* lWindow = glfwCreateWindow(lWindowWidth, lWindowHeight, "VulkanRenderer", 0, 0);
@@ -792,6 +946,7 @@ int main(int argc, const char* argv[])
 
 
 	size_t lChunkSize = 16 * 1024 * 1024;
+
 
 	// TODO : a stage buffer to copy data from CPU to GPU(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT ) memory trough vkCmdCopyBuffer
 	// At the moment
@@ -843,6 +998,12 @@ int main(int argc, const char* argv[])
 	assert(lSuccess && "Can't load fragment program");
 
 
+	// Create Image	
+	Image lImage;
+	createImage(lImage, lDevice, VK_FORMAT_R8G8B8A8_SRGB, 2, 2);
+
+
+	//uploadBufferToImage()
 	// HERE DESCRIPTOR LABOR BEGIN
 
 
@@ -863,7 +1024,7 @@ int main(int argc, const char* argv[])
 	std::vector<Buffer> uniformBuffers(lVulkanSwapchain.imageCount());
 	for (uint32_t i = 0; i < lVulkanSwapchain.imageCount(); ++i)
 	{
-		createBuffer(uniformBuffers[i], lDevice, sizeof(Object), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT /*| VK_MEMORY_PROPERTY_HOST_COHERENT_BIT*/);
+		createBuffer(uniformBuffers[i], lDevice, sizeof(Object), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 		((Object*)uniformBuffers[i].data)->color[0] = 1.0f;
 		((Object*)uniformBuffers[i].data)->color[1] = 0.0f;
 		((Object*)uniformBuffers[i].data)->color[2] = 0.0f;
@@ -979,6 +1140,8 @@ int main(int argc, const char* argv[])
 	// At the moment do a hard lock upload
 	uploadBuffer(lDevice, lCommandPool, lCommandBuffers[0], lDevice.getQueue(VulkanQueueType::Transfert), lStageBuffer, lMeshVertexBuffer, (void*)lMesh.vertices.data(), lMesh.vertices.size() * sizeof(Vertex));
 	uploadBuffer(lDevice, lCommandPool, lCommandBuffers[0], lDevice.getQueue(VulkanQueueType::Transfert), lStageBuffer, lMeshIndexBuffer, (void*)lMesh.indices.data(), lMesh.indices.size() * sizeof(uint32_t));
+
+	uploadBufferToImage(lDevice, lCommandPool, lCommandBuffers[0], lDevice.getQueue(VulkanQueueType::Transfert), lStageBuffer, lImage, rgba2x2, sizeof(rgba2x2));
 
 	uint64_t frameCount = 0;
 	double cpuTotalTime = 0.0;
