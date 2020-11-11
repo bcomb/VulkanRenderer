@@ -155,6 +155,16 @@ void VulkanSwapchain::createSwapchain(uint32_t pWidth, uint32_t pHeight, uint32_
 	// Finally create the swapchain
 	VK_CHECK(vkCreateSwapchainKHR(mDevice->mLogicalDevice, &lSwapchainInfo, nullptr, &mSwapchain));
 
+	// Destroy previous ressources
+	if
+		(lOldSwapchain)
+	{
+		for (auto&& lImageView : mImageViews)
+			vkDestroyImageView(mDevice->mLogicalDevice, lImageView, NULL);
+
+		vkDestroySwapchainKHR(mDevice->mLogicalDevice, lOldSwapchain, NULL);
+	}
+
 	// Retrieve Image and create view for this
 	uint32_t lImageCount = 0;
 	VK_CHECK(vkGetSwapchainImagesKHR(mDevice->mLogicalDevice, mSwapchain, &lImageCount, nullptr));
@@ -167,6 +177,7 @@ void VulkanSwapchain::createSwapchain(uint32_t pWidth, uint32_t pHeight, uint32_
 		mImageViews[i] = vkh::createImageView(mDevice->mLogicalDevice, mImages[i], mColorFormat);
 	}
 
+
 	// Also create the render pass ?
 	
 }
@@ -174,10 +185,8 @@ void VulkanSwapchain::createSwapchain(uint32_t pWidth, uint32_t pHeight, uint32_
 /******************************************************************************/
 void VulkanSwapchain::resizeSwapchain(uint32_t pWidth, uint32_t pHeight, uint32_t pDesiredImages, bool pVSync)
 {
-	VulkanSwapchain lOld = *this;
-	createSwapchain(pWidth, pHeight, pDesiredImages, pVSync);
 	VK_CHECK(vkDeviceWaitIdle(mDevice->mLogicalDevice));
-	lOld.cleanUp();
+	createSwapchain(pWidth, pHeight, pDesiredImages, pVSync);
 }
 
 /******************************************************************************/
