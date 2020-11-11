@@ -57,7 +57,7 @@ void VulkanContext::enumeratePhysicalDevices()
 }
 
 /******************************************************************************/
-VkPhysicalDevice VulkanContext::pickPhysicalDevice(VkQueueFlagBits pCapableBits)
+VkPhysicalDevice VulkanContext::pickPhysicalDevice(VkQueueFlags pCapableBits)
 {
 	// Search for a DISCRETE_GPU
 	for (uint32_t i = 0; i < mPhysicalDevices.size(); ++i)

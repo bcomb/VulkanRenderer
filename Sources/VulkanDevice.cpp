@@ -83,7 +83,7 @@ void VulkanDevice::createLogicalDevice(VkQueueFlags pRequestedQueueTypes)
 		{
 			// If compute family index differs, we need an additional queue create info for the compute queue
 			VkDeviceQueueCreateInfo lQueueInfo = { VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO  };
-			lQueueInfo.queueFamilyIndex = mQueueFamilyIndices[VulkanQueueType::Compute];
+			lQueueInfo.queueFamilyIndex = mQueueFamilyIndices[VulkanQueueType::Transfert];
 			lQueueInfo.queueCount = 1;
 			lQueueInfo.pQueuePriorities = &defaultQueuePriority;
 			lQueueCreateInfos.push_back(lQueueInfo);
@@ -99,7 +99,7 @@ void VulkanDevice::createLogicalDevice(VkQueueFlags pRequestedQueueTypes)
 
 	VkDeviceCreateInfo lDeviceCreateInfo = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
 	lDeviceCreateInfo.pQueueCreateInfos = lQueueCreateInfos.data();
-	lDeviceCreateInfo.queueCreateInfoCount = lQueueCreateInfos.size();
+	lDeviceCreateInfo.queueCreateInfoCount = (uint32_t)lQueueCreateInfos.size();
 
 	const char* lDeviceExtensions[] =
 	{

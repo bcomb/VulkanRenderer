@@ -736,14 +736,14 @@ int main(int argc, const char* argv[])
 	VulkanContext lVulkanInstance;
 	lVulkanInstance.createInstance();
 	lVulkanInstance.enumeratePhysicalDevices();
-	VkPhysicalDevice lPhysicalDevice = lVulkanInstance.pickPhysicalDevice(VK_QUEUE_GRAPHICS_BIT);
+	VkPhysicalDevice lPhysicalDevice = lVulkanInstance.pickPhysicalDevice(VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_TRANSFER_BIT);
 
 #ifdef _DEBUG
 	registerDebugMessenger(lVulkanInstance);
 #endif
 
 	VulkanDevice lDevice(lPhysicalDevice);
-	lDevice.createLogicalDevice(VK_QUEUE_GRAPHICS_BIT /*| VK_QUEUE_TRANSFER_BIT*/);
+	lDevice.createLogicalDevice(VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_TRANSFER_BIT);
 
 	// Surface creation are platform specific
 	GLFWwindow* lWindow = glfwCreateWindow(lWindowWidth, lWindowHeight, "VulkanRenderer", 0, 0);

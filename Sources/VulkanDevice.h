@@ -16,7 +16,7 @@ struct VulkanDevice
     // return VK_NULL_HANDLE if not exist
     inline VkQueue getQueue(VulkanQueueType::Enum pQueueType) const
     {
-        return mQueues[(int)pQueueType];
+        return mQueues[pQueueType];
     }    
     inline uint32_t getQueueFamilyIndex(VulkanQueueType::Enum pQueueType) const
     {
