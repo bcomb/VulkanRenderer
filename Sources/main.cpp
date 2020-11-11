@@ -67,13 +67,15 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
 	void* pUserData)
 {
 	const char* errorTypeStr =
-		(messageType & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
+		(messageType & VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT)
 		? "[VERBOSE] "
 		: (messageType & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT)
 		? "[INFO] "
 		: (messageType & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
 		? "[WARNING] "
-		: "[ERROR] ";
+		: (messageType & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
+		? "[ERROR] "
+		: "[UNKNOW] ";
 
 
 	printf("%s%s\n", errorTypeStr, pCallbackData->pMessage);
