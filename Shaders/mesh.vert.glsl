@@ -28,6 +28,8 @@ void main()
     //vColor = vec4(iNormal * 0.5 + vec3(0.5), 1.0);
     //vColor = vColor * object.color;
 
+    vColor = vec4(iTexCoord.xy, 0.0, 1.0);
+    /*
     if
         (object.color.r != 0 && object.color.g != 0)
     {
@@ -38,6 +40,7 @@ void main()
     {
         vColor = object.color;
     }
+    */
      
 
     //gl_Position = object.proj * object.view * object.model * vec4(iPosition, 1.0);

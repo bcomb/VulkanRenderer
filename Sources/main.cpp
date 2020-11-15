@@ -406,6 +406,12 @@ void loadTriangleMesh(Mesh& pMesh)
 	pMesh.indices = { 0, 1, 2 };
 }
 
+// Triangle as a quad textured
+void loadQuadMesh(Mesh& pMesh)
+{
+	pMesh.vertices = { {-0.5,-0.5,0.0,0.0,0.0,0.0,0.0,0.0}, {0.5,-0.5,0.0,0.0,0.0,0.0,1.0,0.0}, {0.5,0.5,0.0,0.0,0.0,0.0,1.0,1.0}, {-0.5,0.5,0.0,0.0,0.0,0.0,0.0,1.0} };
+	pMesh.indices = { 0, 1, 2, 0, 2, 3 };
+}
 
 // Simple obj mesh loader
 bool loadMesh(Mesh& pMesh, const char* pPath, bool pNormalized = false)
@@ -451,9 +457,8 @@ bool loadMesh(Mesh& pMesh, const char* pPath, bool pNormalized = false)
 			v.ny = lMesh->normals[dataIndex.n * 3 + 1];
 			v.nz = lMesh->normals[dataIndex.n * 3 + 2];
 
-			//v.tu = lMesh->texcoords[dataIndex.t * 3 + 0];
-			//v.tv = lMesh->texcoords[dataIndex.t * 3 + 1];
-			//v.tz = lMesh->positions[dataIndex.t * 3 + 2];
+			v.tu = lMesh->texcoords[dataIndex.t * 3 + 0];
+			v.tv = lMesh->texcoords[dataIndex.t * 3 + 1];
 
 			boundingBox.setMinMax({ v.px, v.py, v.pz });
 		}
@@ -941,7 +946,8 @@ int main(int argc, const char* argv[])
 	// Create need mesh ressources
 	Mesh lMesh;
 	//loadTriangleMesh(lMesh);
- 	bool lResult = loadMesh(lMesh, R"path(E:\Data\obj\bicycle.obj)path", true);	
+	loadQuadMesh(lMesh);
+ 	//bool lResult = loadMesh(lMesh, R"path(E:\Data\obj\bicycle.obj)path", true);	
 	//bool lResult = loadMesh(lMesh, R"path(F:\Data\Models\stanford\kitten.obj)path");	
 	//bool lResult = loadMesh(lMesh, R"path(F:\Data\Models\stanford\debug.obj)path");
 	//assert(lResult);
@@ -1004,9 +1010,11 @@ int main(int argc, const char* argv[])
 	Image lImage;
 	createImage(lImage, lDevice, VK_FORMAT_R8G8B8A8_SRGB, 2, 2);
 
+	// Texture
+	
 
-	//uploadBufferToImage()
-	// HERE DESCRIPTOR LABOR BEGIN
+	
+
 
 
 	// For uniform?
@@ -1142,7 +1150,6 @@ int main(int argc, const char* argv[])
 	// At the moment do a hard lock upload
 	uploadBuffer(lDevice, lCommandPool, lCommandBuffers[0], lDevice.getQueue(VulkanQueueType::Transfert), lStageBuffer, lMeshVertexBuffer, (void*)lMesh.vertices.data(), lMesh.vertices.size() * sizeof(Vertex));
 	uploadBuffer(lDevice, lCommandPool, lCommandBuffers[0], lDevice.getQueue(VulkanQueueType::Transfert), lStageBuffer, lMeshIndexBuffer, (void*)lMesh.indices.data(), lMesh.indices.size() * sizeof(uint32_t));
-
 	uploadBufferToImage(lDevice, lCommandPool, lCommandBuffers[0], lDevice.getQueue(VulkanQueueType::Transfert), lStageBuffer, lImage, rgba2x2, sizeof(rgba2x2));
 
 	uint64_t frameCount = 0;
