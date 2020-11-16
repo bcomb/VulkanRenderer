@@ -148,4 +148,32 @@ VkFramebuffer createFramebuffer(VkDevice pDevice, VkRenderPass pRenderPass, VkIm
 	return framebuffer;
 }
 
+/******************************************************************************/
+VkSampler createTextureSampler(VkDevice pDevice)
+{
+	VkSamplerCreateInfo createInfo = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
+	//VkStructureType         sType;
+	//const void* pNext;
+	//VkSamplerCreateFlags    flags = 0; // osef? VK_SAMPLER_CREATE_SUBSAMPLED_BIT_EXT if image was create with this flag (dunno what is it)
+	createInfo.magFilter = VK_FILTER_LINEAR;
+	createInfo.minFilter = VK_FILTER_LINEAR;
+	createInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST; // have to generate it manually
+	createInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	createInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	createInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	createInfo.mipLodBias = 0.0f;
+	createInfo.anisotropyEnable = VK_FALSE; // to use this need to enable the feature on the logical device
+	createInfo.maxAnisotropy = 0.0f;
+	createInfo.compareEnable = VK_FALSE; // Depth compare for depth map test i suppose
+	createInfo.compareOp = VK_COMPARE_OP_NEVER;
+	createInfo.minLod = 0.0f;
+	createInfo.maxLod = 0.0f;
+	createInfo.borderColor = VK_BORDER_COLOR_INT_TRANSPARENT_BLACK; // INT/FLOAT? maybe should be a good idea to pass VK_FORMAT of the image to auto this
+	createInfo.unnormalizedCoordinates = VK_FALSE;
+
+	VkSampler sampler;
+	VK_CHECK(vkCreateSampler(pDevice, &createInfo, NULL, &sampler));
+	return sampler;
+}
+
 } // ns vkh

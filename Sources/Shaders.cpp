@@ -110,6 +110,7 @@ void destroyShader(VkDevice pDevice, Shader& pShader)
 }
 
 /*****************************************************************************/
+/*
 VkDescriptorSetLayout createDescriptorSetLayout(VkDevice pDevice)
 {
 	// TODO : This is the thing to automated with reflection
@@ -129,7 +130,7 @@ VkDescriptorSetLayout createDescriptorSetLayout(VkDevice pDevice)
 	VK_CHECK(vkCreateDescriptorSetLayout(pDevice, &layoutInfo, nullptr, &descriptorSetLayout));
 	return descriptorSetLayout;
 }
-
+*/
 /*****************************************************************************/
 VkPipelineLayout createPipelineLayout(VkDevice pDevice, uint32_t setLayoutCount, const VkDescriptorSetLayout* pSetLayouts, uint32_t pushConstantRangeCount, const VkPushConstantRange* pPushConstantRanges)
 {
@@ -263,10 +264,12 @@ VkPipeline createGraphicsPipeline(VkDevice pDevice, VkPipelineCache pPipelineCac
 
 
 /*****************************************************************************/
-VkDescriptorUpdateTemplate createDescriptorUpdateTemplate(VkDevice pDevice, VkPipelineBindPoint pipelineBindPoint, VkPipelineLayout pipelineLayout, VkDescriptorSetLayout descriptorSetLayout)
+VkDescriptorUpdateTemplate createDescriptorUpdateTemplate(VkDevice pDevice, VkPipelineBindPoint pipelineBindPoint, VkPipelineLayout pipelineLayout, VkDescriptorSetLayout descriptorSetLayout, bool pushDescriptorsSupported)
 {
+#pragma message ("WARNING : TO MUCH HARDCODE")
 	std::vector<VkDescriptorUpdateTemplateEntry> entries;
-	entries.resize(1);
+	entries.resize(2);
+
 	entries[0].dstBinding = 0;
 	entries[0].dstArrayElement = 0;
 	entries[0].descriptorCount = 1;
@@ -276,16 +279,30 @@ VkDescriptorUpdateTemplate createDescriptorUpdateTemplate(VkDevice pDevice, VkPi
 	entries[0].offset = sizeof(DescriptorInfo) * 0;
 	entries[0].stride = sizeof(DescriptorInfo);
 
+	entries[1].dstBinding = 1;
+	entries[1].dstArrayElement = 0;
+	entries[1].descriptorCount = 1;
+	entries[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	// TODO : DescriptorInfo 
+	// This is the data layout given to the vkUpdateDescriptorSetWithTemplate
+	entries[1].offset = sizeof(DescriptorInfo) * 1;
+	entries[1].stride = sizeof(DescriptorInfo);
+
 	VkDescriptorUpdateTemplateCreateInfo createInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_UPDATE_TEMPLATE_CREATE_INFO };
 	//const void* pNext;
 	//VkDescriptorUpdateTemplateCreateFlags     flags;
 	createInfo.descriptorUpdateEntryCount = (uint32_t)entries.size();
 	createInfo.pDescriptorUpdateEntries = entries.data();
-	createInfo.templateType = VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_PUSH_DESCRIPTORS_KHR;
-	createInfo.descriptorSetLayout = descriptorSetLayout;
+	createInfo.templateType = pushDescriptorsSupported ? VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_PUSH_DESCRIPTORS_KHR : VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_DESCRIPTOR_SET;
+	createInfo.descriptorSetLayout = pushDescriptorsSupported ? 0 : descriptorSetLayout;
 	createInfo.pipelineBindPoint = pipelineBindPoint;
 	createInfo.pipelineLayout = pipelineLayout;
 	//uint32_t                                  set;
+
+	// pCreateInfo->set(0) does not refer to the push descriptor set layout for pCreateInfo->pipelineLayout(VkPipelineLayout 0xdcba38000000001d[]).
+	// The Vulkan spec states : If templateType is VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_PUSH_DESCRIPTORS_KHR,
+	// set must be the unique set number in the pipeline layout that uses a descriptor set layout that was created with VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR
+	// (https ://www.khronos.org/registry/vulkan/specs/1.1-extensions/html/vkspec.html#VUID-VkDescriptorUpdateTemplateCreateInfo-templateType-00353)
 
 	VkDescriptorUpdateTemplate updateTpl = 0;
 	VK_CHECK(vkCreateDescriptorUpdateTemplate(pDevice, &createInfo, NULL, &updateTpl));

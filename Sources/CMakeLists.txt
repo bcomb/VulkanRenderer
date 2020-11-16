@@ -25,6 +25,7 @@ source_group(Shaders FILES ${glsl_sources} ${glsl_inc})
 
 
 add_executable(${PROJECT_NAME} ${sources} ${glsl_sources})
+target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../ThirdParty/stb) # to access stb
 target_link_libraries (${PROJECT_NAME} PRIVATE glfw volk meshoptimizer)
 #set_target_properties(${PROJECT_NAME} PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_HOME_DIRECTORY}/bin")
 

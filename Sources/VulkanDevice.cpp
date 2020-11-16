@@ -109,6 +109,8 @@ void VulkanDevice::createLogicalDevice(VkQueueFlags pRequestedQueueTypes)
 	lDeviceCreateInfo.enabledExtensionCount = ARRAY_COUNT(lDeviceExtensions);
 	lDeviceCreateInfo.ppEnabledExtensionNames = lDeviceExtensions;
 
+
+
 	// Previous implementations of Vulkan made a distinction between instance and device specific validation layers,
 	// but this is no longer the case. That means that the enabledLayerCountand ppEnabledLayerNames fields 
 	// of VkDeviceCreateInfo are ignored by up - to - date implementations.However,

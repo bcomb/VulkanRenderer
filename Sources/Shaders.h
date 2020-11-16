@@ -37,8 +37,6 @@ void destroyShader(VkDevice pDevice, Shader& pShader);
 VkPipelineLayout createPipelineLayout(VkDevice pDevice, uint32_t setLayoutCount, const VkDescriptorSetLayout* pSetLayouts, uint32_t pushConstantRangeCount, const VkPushConstantRange* pPushConstantRanges);
 VkPipeline createGraphicsPipeline(VkDevice pDevice, VkPipelineCache pPipelineCache, VkPipelineLayout pPipelineLayout, VkRenderPass pRenderPass, Shader& pVertexShader, Shader& pFragmentShader, VkPipelineVertexInputStateCreateInfo& pInputState);
 
-VkDescriptorSetLayout createDescriptorSetLayout(VkDevice pDevice);
-VkDescriptorUpdateTemplate createDescriptorUpdateTemplate(VkDevice pDevice, VkPipelineBindPoint pipelineBindPoint, VkPipelineLayout pipelineLayout, VkDescriptorSetLayout descriptorSetLayout);
-
-
+//VkDescriptorSetLayout createDescriptorSetLayout(VkDevice pDevice);
+VkDescriptorUpdateTemplate createDescriptorUpdateTemplate(VkDevice pDevice, VkPipelineBindPoint pipelineBindPoint, VkPipelineLayout pipelineLayout, VkDescriptorSetLayout descriptorSetLayout, bool pushDescriptorsSupported);
 

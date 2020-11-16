@@ -1,9 +1,9 @@
-
 #include "vk_common.h"
 #include "Shaders.h"
 
 #include <algorithm>
 #include <vector>
+#include <array>
 
 #include <assert.h>
 #include <malloc.h>
@@ -12,6 +12,9 @@
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
 #include <meshoptimizer.h>
+
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
 
 
 #define FAST_OBJ_IMPLEMENTATION
@@ -58,6 +61,12 @@ uint8_t rgba2x2[][4] =
 /******************************************************************************/
 /******************************************************************************/
 
+// vkUpdateDescriptorSets -> Vulkan 1_0
+// vkUpdateDescriptorSetWithTemplate -> Vulkan 1_1
+// vkCmdPushDescriptorSetWithTemplateKHR -> require VK_KHR_descriptor_update_template
+static bool pushDescriptorsSupported = true; // Bindless require //VK_KHR_push_descriptor
+static bool useDescriptorTemplate = true;	//VK_KHR_descriptor_update_template
+
 /******************************************************************************/
 VkDebugUtilsMessengerEXT gDebugMessenger;
 static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
@@ -85,8 +94,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
 	OutputDebugString(errorTypeStr); OutputDebugString(pCallbackData->pMessage); OutputDebugString("\n");
 #endif
 
-	if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
-		assert(!"ERROR");
+	if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)	assert(!"ERROR");
 
 	return VK_FALSE;
 }
@@ -670,7 +678,8 @@ struct Image
 	VkFormat format;
 	VkImage image;
 	VkDeviceMemory memory;
-	uint32_t width, height;
+	uint32_t width, height;	
+	void* imageData = NULL;			// can be freed after staging
 
 	void* data; // at the moment persistent map, if not, u have to Map/Unmap in the uploadBufferToImage
 	size_t size;
@@ -680,7 +689,7 @@ void createImage(Image& result, VulkanDevice pDevice, VkFormat pFormat, uint32_t
 {
 	VkImageCreateInfo lImageInfo = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
 	//const void* pNext;
-	//VkImageCreateFlags       flags;
+	//VkImageCreateFlags       flags;	// advanced conf
 	lImageInfo.imageType = VK_IMAGE_TYPE_2D;
 	lImageInfo.format = pFormat;
 	lImageInfo.extent.width = pWidth;
@@ -724,24 +733,31 @@ void createImage(Image& result, VulkanDevice pDevice, VkFormat pFormat, uint32_t
 }
 
 // Copy pHostData to the pSrc.data stage buffer into pDst using vkCmdCopyBuffer
-void uploadBufferToImage(VkDevice pDevice, VkCommandPool pCommandPool, VkCommandBuffer pCommandBuffer, VkQueue pCopyQueue, const Buffer& pSrc, const Image& pDst, void* pHostData, size_t pHostDataSize)
+void uploadBufferToImage(VkDevice pDevice, VkCommandPool pCommandPool, VkCommandBuffer pCommandBuffer, VkQueue pCopyQueue, const Buffer& pSrc, Image& pDst, bool pDeleteImageData = true)
 {
 #pragma message("TODO : robust way to identify persistent map or not")
-
-	assert(pHostDataSize <= pSrc.size);
+	assert(pDst.imageData != NULL);
+	uint32_t lImageDataSize = pDst.width * pDst.height * 4;
+	assert(lImageDataSize <= pSrc.size);
 	// pDst.data is a persistent mapped buffer
 	if
 		(pSrc.data)
 	{
 		// At the moment we conisder the data is already map in VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-		memcpy(pSrc.data, pHostData, pHostDataSize);
+		memcpy(pSrc.data, pDst.imageData, lImageDataSize);
 	}
 	else
 	{
 		void* lData = NULL;
 		VK_CHECK(vkMapMemory(pDevice, pSrc.memory, 0, VK_WHOLE_SIZE, 0, &lData));
-		memcpy(lData, pHostData, pHostDataSize);
+		memcpy(lData, pDst.imageData, lImageDataSize);
 		vkUnmapMemory(pDevice, pSrc.memory);
+	}
+
+	if (pDeleteImageData)
+	{
+		free(pDst.imageData);
+		pDst.imageData = NULL;
 	}
 
 	VK_CHECK(vkResetCommandPool(pDevice, pCommandPool, 0));
@@ -877,6 +893,24 @@ void createSwapchainFramebuffer(VkDevice pDevice, VkRenderPass pRenderPass, Vulk
 	pFramebuffers.swap(lSwapChainFramebuffer);
 }
 
+
+// Create Image	
+bool loadImage(VulkanDevice pDevice, Image& pImage, const char* pFilename)
+{
+	Image lTextureImage;
+	int w, h, channels_in_file;
+	void* data = stbi_load(pFilename, &w, &h, &channels_in_file, 4);
+	assert(stbi_load != NULL && "fail to load images");
+	if (data)
+	{
+		pImage.imageData = data;
+		createImage(pImage, pDevice, VK_FORMAT_R8G8B8A8_UNORM, w, h);		
+		return true;
+	}
+
+	return false;
+}
+
 // Entry point
 int main(int argc, const char* argv[])
 {
@@ -1006,119 +1040,198 @@ int main(int argc, const char* argv[])
 	assert(lSuccess && "Can't load fragment program");
 
 
-	// Create Image	
-	Image lImage;
-	createImage(lImage, lDevice, VK_FORMAT_R8G8B8A8_SRGB, 2, 2);
+	// Create Image		
+	Image lTextureImage;
+	loadImage(lDevice, lTextureImage, R"(E:\Data\Textures\color_wheel_rgb.png)");
+	assert(lTextureImage.imageData);
 
-	// Texture
-	
+	// Sampler
+	VkSampler lTextureSampler = vkh::createTextureSampler(lDevice);
 
-	
+#pragma message("TODO : move pool creation to device object")
+	// -- pool creation BEGIN 
+	// HERE we need to created pool of each kind of desciptor type (UBO/SBO/constant look at VkDescriptorType)
+	// And for each SwapChainImage for double buffer
 
+	// VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER  -> texture and sampler
+	// VK_DESCRIPTOR_TYPE_SAMPLER + VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE -> ??
 
+	std::vector<VkDescriptorType> lPoolDescriptorTypes = { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER };
+	std::vector<VkDescriptorPoolSize> lDescriptorPoolSizes;
 
-	// For uniform?
-	VkDescriptorSetLayoutBinding uboLayoutBinding = {};
-	uboLayoutBinding.binding = 0;
-	uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-	uboLayoutBinding.descriptorCount = 1;
-	uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT; // VK_SHADER_STAGE_ALL_GRAPHICS (opengl fashion?)
-	uboLayoutBinding.pImmutableSamplers = nullptr; // Optional The pImmutableSamplers field is only relevant for image sampling related descriptors
-
-	VkDescriptorSetLayoutCreateInfo layoutInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-	layoutInfo.bindingCount = 1;
-	layoutInfo.pBindings = &uboLayoutBinding;
-
-	// Double buffered
-	// TODO : as an exercise, allocate Only one UBO and use offset
-	std::vector<Buffer> uniformBuffers(lVulkanSwapchain.imageCount());
-	for (uint32_t i = 0; i < lVulkanSwapchain.imageCount(); ++i)
-	{
-		createBuffer(uniformBuffers[i], lDevice, sizeof(Object), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-		((Object*)uniformBuffers[i].data)->color[0] = 1.0f;
-		((Object*)uniformBuffers[i].data)->color[1] = 0.0f;
-		((Object*)uniformBuffers[i].data)->color[2] = 0.0f;
-		((Object*)uniformBuffers[i].data)->color[3] = 1.0f;
+	for (VkDescriptorType lDescriptorType : lPoolDescriptorTypes)
+	{		
+		lDescriptorPoolSizes.emplace_back(VkDescriptorPoolSize({ lDescriptorType, lVulkanSwapchain.imageCount() }));
 	}
 
-	VkDescriptorSetLayout descriptorSetLayout;
-	VK_CHECK(vkCreateDescriptorSetLayout(lDevice, &layoutInfo, nullptr, &descriptorSetLayout));
-
-	// HERE we need to created pool of each kind of desciptor type (UBO/SBO/constant look at VkDescriptorType)
-	// And for each SwapChainImage for double buffer (not sure????)
-	VkDescriptorPoolSize poolSize = {};
-	poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-	poolSize.descriptorCount = static_cast<uint32_t>(lVulkanSwapchain.imageCount());
 
 	VkDescriptorPoolCreateInfo poolInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
 	//The structure has an optional flag similar to command pools that determines if individual descriptor sets can be freed or not: VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT.
 	// We're not going to touch the descriptor set after creating it, so we don't need this flag.You can leave flags to its default value of 0.
 	//VkDescriptorPoolCreateFlags    flags;
-	poolInfo.maxSets = lVulkanSwapchain.imageCount(); // can't access the same set from multiple CommandBuffer? creater one for each CommandBuffer
-	poolInfo.poolSizeCount = 1;
-	poolInfo.pPoolSizes = &poolSize;
+	poolInfo.maxSets = lVulkanSwapchain.imageCount(); // can't access the same set from multiple CommandBuffer? create one for each CommandBuffer
+	poolInfo.poolSizeCount = (uint32_t)lDescriptorPoolSizes.size();
+	poolInfo.pPoolSizes = lDescriptorPoolSizes.data();
 
-	VkDescriptorPool descriptorPool;
-	VK_CHECK(vkCreateDescriptorPool(lDevice, &poolInfo, nullptr, &descriptorPool));
+	VkDescriptorPool lDescriptorPool;
+	VK_CHECK(vkCreateDescriptorPool(lDevice, &poolInfo, nullptr, &lDescriptorPool));
+
+	// -- pool creation END
+
+
+	// -- binding point declaration BEGIN
+	// i have same binding point for texture/ubo, one in VertexStage, the other in fragment, is it legal? what happen if texture
+	// is accessed from vertex too?
+
+	std::vector<VkDescriptorSetLayoutBinding> lDescriptorSetLayoutBinding;
+
+	// For uniform?
+	VkDescriptorSetLayoutBinding uboDescBind = {};
+	uboDescBind.binding = 0;
+	uboDescBind.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	uboDescBind.descriptorCount = 1;
+	uboDescBind.stageFlags = VK_SHADER_STAGE_VERTEX_BIT; // VK_SHADER_STAGE_ALL_GRAPHICS (opengl fashion?)
+	uboDescBind.pImmutableSamplers = nullptr; // Optional The pImmutableSamplers field is only relevant for image sampling related descriptors
+
+	// Texture
+	VkDescriptorSetLayoutBinding textureDescBind = {};
+	textureDescBind.binding = 1;
+	textureDescBind.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	textureDescBind.descriptorCount = 1;
+	textureDescBind.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT; // VK_SHADER_STAGE_VERTEX_BIT
+	//const VkSampler* pImmutableSamplers;
+
+
+	lDescriptorSetLayoutBinding.push_back(uboDescBind);
+	lDescriptorSetLayoutBinding.push_back(textureDescBind);
+
+	VkDescriptorSetLayoutCreateInfo lDescriptorSetLayoutCreateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+
+	// VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR : Setting this flag tells the descriptor set layouts that no actual descriptor sets are allocated but instead pushed at command buffer creation time
+	lDescriptorSetLayoutCreateInfo.flags = pushDescriptorsSupported ? VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR : 0;
+	lDescriptorSetLayoutCreateInfo.bindingCount = (uint32_t)lDescriptorSetLayoutBinding.size();
+	lDescriptorSetLayoutCreateInfo.pBindings = lDescriptorSetLayoutBinding.data();
+
+	VkDescriptorSetLayout lDescriptorSetLayout;
+	VK_CHECK(vkCreateDescriptorSetLayout(lDevice, &lDescriptorSetLayoutCreateInfo, nullptr, &lDescriptorSetLayout));
+
+	// -- binding point declaration END
+
+	// -- Binding ressource creation BEGIN
+	// Create the resource to bind on the shader
+	/// Resources by imageCount in the swapChain
+	// Texture (require as much view as swapChainImage (can't access the imageview from multiple command buffer)
+	std::vector<VkImageView> lTextureImageViews(lVulkanSwapchain.imageCount());
+	std::vector<Buffer> lUniformBuffers(lVulkanSwapchain.imageCount());
+
+	for (uint32_t i = 0; i < lVulkanSwapchain.imageCount(); ++i)
+	{
+		// UBO
+		createBuffer(lUniformBuffers[i], lDevice, sizeof(Object), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+		((Object*)lUniformBuffers[i].data)->color[0] = 1.0f;
+		((Object*)lUniformBuffers[i].data)->color[1] = 0.0f;
+		((Object*)lUniformBuffers[i].data)->color[2] = 0.0f;
+		((Object*)lUniformBuffers[i].data)->color[3] = 1.0f;
+
+		// TextureImage view
+		lTextureImageViews[i] = vkh::createImageView(lDevice, lTextureImage.image, lTextureImage.format);
+	}
+	// -- Binding ressource creation END
 
 	// In our case we will create one descriptor set for each swap chain image, all with the same layout.
 	// Unfortunately we do need all the copies of the layout because the next function expects an array matching the number of sets.
-	std::vector<VkDescriptorSetLayout> layouts(lVulkanSwapchain.imageCount(), descriptorSetLayout);
+	std::vector<VkDescriptorSetLayout> layouts(lVulkanSwapchain.imageCount(), lDescriptorSetLayout);
 	VkDescriptorSetAllocateInfo allocInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-	allocInfo.descriptorPool = descriptorPool;
-	allocInfo.descriptorSetCount = lVulkanSwapchain.imageCount();
+	allocInfo.descriptorPool = lDescriptorPool;
+	allocInfo.descriptorSetCount = (uint32_t)layouts.size();
 	allocInfo.pSetLayouts = layouts.data();
 
-	std::vector<VkDescriptorSet> descriptorSets;
-	descriptorSets.resize(lVulkanSwapchain.imageCount());
-	VK_CHECK(vkAllocateDescriptorSets(lDevice, &allocInfo, descriptorSets.data()));
+	// Allocate descriptor set (one per image in the swapchain)
+	std::vector<VkDescriptorSet> lDescriptorSets;
+	lDescriptorSets.resize(lVulkanSwapchain.imageCount());
 
-	for (size_t i = 0; i < lVulkanSwapchain.imageCount(); i++) {
-		VkDescriptorBufferInfo bufferInfo = {};
-		bufferInfo.buffer = uniformBuffers[i].buffer;
-		bufferInfo.offset = 0;
-		bufferInfo.range = sizeof(Object);
+	//vkAllocateDescriptorSets() was created with invalid flag VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR set.
+	// The Vulkan spec states : Each element of pSetLayouts must not have been created with VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR set
+	// (https ://www.khronos.org/registry/vulkan/specs/1.1-extensions/html/vkspec.html#VUID-VkDescriptorSetAllocateInfo-pSetLayouts-00308)
+	if
+		(useDescriptorTemplate)
+	{
+		if
+			(pushDescriptorsSupported)
+		{
+		}
+		else
+		{
 
-		VkWriteDescriptorSet descriptorWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-		descriptorWrite.dstSet = descriptorSets[i];
-		descriptorWrite.dstBinding = 0;
-		descriptorWrite.dstArrayElement = 0;
-		descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-		descriptorWrite.descriptorCount = 1;
-		descriptorWrite.pBufferInfo = &bufferInfo;
-		descriptorWrite.pImageInfo = nullptr; // Optional
-		descriptorWrite.pTexelBufferView = nullptr; // Optional
-
-		vkUpdateDescriptorSets(lDevice, 1, &descriptorWrite, 0, nullptr);
+		}
 	}
+	else
+	{
+		//this is for Vulkan 1_0, we don't care at the moment, we use VkDescriptorUpdateTemplate instead
+		VK_CHECK(vkAllocateDescriptorSets(lDevice, &allocInfo, lDescriptorSets.data()));
 
+		// Fill the descriptor
+		for (size_t i = 0; i < lDescriptorSets.size(); ++i)
+		{
+			std::vector<VkWriteDescriptorSet> lDescriptorWrites;
 
+			// ----- 1st resource
+			{
+				VkDescriptorBufferInfo bufferInfo = {};
+				bufferInfo.buffer = lUniformBuffers[i].buffer;
+				bufferInfo.offset = 0;
+				bufferInfo.range = sizeof(Object);
+
+				VkWriteDescriptorSet descriptorWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+				descriptorWrite.dstSet = lDescriptorSets[i];
+				descriptorWrite.dstBinding = 0;
+				descriptorWrite.dstArrayElement = 0;
+				descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+				descriptorWrite.descriptorCount = 1;
+				descriptorWrite.pBufferInfo = &bufferInfo;
+				descriptorWrite.pImageInfo = NULL;
+				descriptorWrite.pTexelBufferView = NULL;
+
+				lDescriptorWrites.push_back(descriptorWrite);
+			}
+
+			// ----- 2nd resource
+			{
+				VkDescriptorImageInfo imageInfo = {};
+				imageInfo.sampler = lTextureSampler;
+				imageInfo.imageView = lTextureImageViews[i];
+				imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+				VkWriteDescriptorSet descriptorWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+				descriptorWrite.dstSet = lDescriptorSets[i];
+				descriptorWrite.dstBinding = 1;
+				descriptorWrite.dstArrayElement = 0;
+				descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+				descriptorWrite.descriptorCount = 1;
+				descriptorWrite.pBufferInfo = NULL;
+				descriptorWrite.pImageInfo = &imageInfo;
+				descriptorWrite.pTexelBufferView = NULL;
+
+				lDescriptorWrites.push_back(descriptorWrite);
+			}
+
+			// indexation are done trough the descriptorWrite.dstSet
+			vkUpdateDescriptorSets(lDevice, (uint32_t)lDescriptorWrites.size(), lDescriptorWrites.data(), 0, nullptr); // VkCopyDescriptorSet : what is this?	
+		}
+	}
 	// HERE DESCRIPTOR LABOR END
+	VkPipelineLayout lPipelineLayout = createPipelineLayout(lDevice, 1, &lDescriptorSetLayout, 0, NULL);
 
+	// Bindless API
+	VkDescriptorUpdateTemplate lDescriptorUpdateTemplate{};	
+	lDescriptorUpdateTemplate = createDescriptorUpdateTemplate(lDevice, VK_PIPELINE_BIND_POINT_GRAPHICS, lPipelineLayout, lDescriptorSetLayout, useDescriptorTemplate && pushDescriptorsSupported);
 
-	/*
-	VkDescriptorSetLayout meshDescriptSetLayout = createDescriptorSetLayout(lDevice);
-
-	VkPipelineLayoutCreateInfo meshLayoutCreateInfo = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
-	//VkPipelineLayoutCreateFlags     flags;
-	meshLayoutCreateInfo.setLayoutCount = 1;
-	meshLayoutCreateInfo.pSetLayouts = &descriptorSetLayout;
-	//uint32_t                        pushConstantRangeCount;
-	//const VkPushConstantRange* pPushConstantRanges;
-
-	VkPipelineLayout lMeshLayout;
-	VK_CHECK(vkCreatePipelineLayout(lDevice, &meshLayoutCreateInfo, nullptr, &lMeshLayout));
-	*/
-
-	VkDescriptorSetLayout meshDescriptorSetLayout = createDescriptorSetLayout(lDevice);
-	VkPipelineLayout lMeshLayout = createPipelineLayout(lDevice, 1, &meshDescriptorSetLayout, 0, NULL);
-	VkDescriptorUpdateTemplate meshUpdateTpl = createDescriptorUpdateTemplate(lDevice, VK_PIPELINE_BIND_POINT_GRAPHICS, lMeshLayout, meshDescriptorSetLayout);
 	// TODO : check if safe to destroy here
 	//vkDestroyDescriptorSetLayout(lDevice, meshDescriptorSetLayout, NULL);
 	
-	VkPipeline lMeshPipeline;
+	VkPipeline lPipeline;
 	VkPipelineCache lPipelineCache = 0; // TODO : learn that
-	lMeshPipeline = createGraphicsPipeline(lDevice, lPipelineCache, lMeshLayout, lRenderPass, lMeshVertexShader, lMeshFragmentShader, lMeshVertexInputCreateInfo);
+	lPipeline = createGraphicsPipeline(lDevice, lPipelineCache, lPipelineLayout, lRenderPass, lMeshVertexShader, lMeshFragmentShader, lMeshVertexInputCreateInfo);
 
 	//VkPipelineLayout lTriangleLayout = createPipelineLayout(lDevice);
 	//VkPipelineCache lPipelineCache = 0;
@@ -1150,7 +1263,7 @@ int main(int argc, const char* argv[])
 	// At the moment do a hard lock upload
 	uploadBuffer(lDevice, lCommandPool, lCommandBuffers[0], lDevice.getQueue(VulkanQueueType::Transfert), lStageBuffer, lMeshVertexBuffer, (void*)lMesh.vertices.data(), lMesh.vertices.size() * sizeof(Vertex));
 	uploadBuffer(lDevice, lCommandPool, lCommandBuffers[0], lDevice.getQueue(VulkanQueueType::Transfert), lStageBuffer, lMeshIndexBuffer, (void*)lMesh.indices.data(), lMesh.indices.size() * sizeof(uint32_t));
-	uploadBufferToImage(lDevice, lCommandPool, lCommandBuffers[0], lDevice.getQueue(VulkanQueueType::Transfert), lStageBuffer, lImage, rgba2x2, sizeof(rgba2x2));
+	uploadBufferToImage(lDevice, lCommandPool, lCommandBuffers[0], lDevice.getQueue(VulkanQueueType::Transfert), lStageBuffer, lTextureImage, true);
 
 	uint64_t frameCount = 0;
 	double cpuTotalTime = 0.0;
@@ -1223,10 +1336,10 @@ int main(int argc, const char* argv[])
 
 		// Update the uniform
 		// Test, should i have to use vkFlushMappedMemoryRanges?. or it's not necessary with COHERENT MEMORY
-		((Object*)uniformBuffers[lCommandBufferIndex].data)->color[0] = lCommandBufferIndex == 0 ? (rand() / float(RAND_MAX)) : 0.0f;
-		((Object*)uniformBuffers[lCommandBufferIndex].data)->color[1] = lCommandBufferIndex == 1 ? (rand() / float(RAND_MAX)) : 0.0f;
-		((Object*)uniformBuffers[lCommandBufferIndex].data)->color[2] = 0.0f;
-		((Object*)uniformBuffers[lCommandBufferIndex].data)->color[3] = 1.0f;
+		((Object*)lUniformBuffers[lCommandBufferIndex].data)->color[0] = lCommandBufferIndex == 0 ? (rand() / float(RAND_MAX)) : 0.0f;
+		((Object*)lUniformBuffers[lCommandBufferIndex].data)->color[1] = lCommandBufferIndex == 1 ? (rand() / float(RAND_MAX)) : 0.0f;
+		((Object*)lUniformBuffers[lCommandBufferIndex].data)->color[2] = 0.0f;
+		((Object*)lUniformBuffers[lCommandBufferIndex].data)->color[3] = 1.0f;
 		/* Don't needed as UBO are HOST_VISIBLE
 		VkMappedMemoryRange range = { VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE };
 		range.memory = uniformBuffers[lCommandBufferIndex].memory;
@@ -1249,17 +1362,56 @@ int main(int argc, const char* argv[])
 		}
 		*/
 
-		vkCmdBindPipeline(lCommandBuffers[lCommandBufferIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, lMeshPipeline);
+		vkCmdBindPipeline(lCommandBuffers[lCommandBufferIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, lPipeline);
 		VkDeviceSize dummyOffset = 0;
 		vkCmdBindVertexBuffers(lCommandBuffers[lCommandBufferIndex], 0, 1, &lMeshVertexBuffer.buffer, &dummyOffset);
 		vkCmdBindIndexBuffer(lCommandBuffers[lCommandBufferIndex], lMeshIndexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-		//vkCmdBindDescriptorSets(lCommandBuffers[lCommandBufferIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, lMeshLayout, 0, 1, &descriptorSets[lCommandBufferIndex], 0, nullptr);
 
-		DescriptorInfo descriptorInfos[] =
-		{ 
-			DescriptorInfo{uniformBuffers[lCommandBufferIndex].buffer, 0, VK_WHOLE_SIZE}
-		};
-		vkCmdPushDescriptorSetWithTemplateKHR(lCommandBuffers[lCommandBufferIndex], meshUpdateTpl, lMeshLayout, 0, descriptorInfos);
+#pragma message("TODO : reactivate this optimal way to bind descriptor (PushTemplate)")
+		if (useDescriptorTemplate)
+		{
+			// Bind resource
+			DescriptorInfo descriptorInfos[] =
+			{
+				DescriptorInfo(lUniformBuffers[lCommandBufferIndex].buffer, 0, VK_WHOLE_SIZE),
+				DescriptorInfo(lTextureSampler, lTextureImageViews[lCommandBufferIndex], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL),
+			};
+
+			if (pushDescriptorsSupported)
+			{
+				// BindLessAPI (vk 1.1) + extentions
+				// Do i need to create lDescriptorUpdateTemplate one by swapchain????
+				vkCmdPushDescriptorSetWithTemplateKHR(lCommandBuffers[lCommandBufferIndex], lDescriptorUpdateTemplate, lPipelineLayout, 0, descriptorInfos);
+			}
+			else
+			{
+				DescriptorInfo descriptorInfos[] =
+				{
+					DescriptorInfo(lUniformBuffers[lCommandBufferIndex].buffer, 0, VK_WHOLE_SIZE),
+					DescriptorInfo(lTextureSampler, lTextureImageViews[lCommandBufferIndex], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL),
+				};
+
+				VkDescriptorSetAllocateInfo allocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+
+				allocateInfo.descriptorPool = lDescriptorPool;
+				allocateInfo.descriptorSetCount = 1;
+				allocateInfo.pSetLayouts = &lDescriptorSetLayout;
+
+				VkDescriptorSet lSet = 0;
+				VK_CHECK(vkAllocateDescriptorSets(lDevice, &allocateInfo, &lSet));
+
+				vkUpdateDescriptorSetWithTemplate(lDevice, lSet, lDescriptorUpdateTemplate, descriptorInfos);
+
+				vkCmdBindDescriptorSets(lCommandBuffers[lCommandBufferIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, lPipelineLayout, 0, 1, &lSet, 0, nullptr);
+			}
+		}
+		else
+		{
+			// vkUpdateDescriptorSets
+			// Vulkan 1.0
+			vkCmdBindDescriptorSets(lCommandBuffers[lCommandBufferIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, lPipelineLayout, 0, 1, &lDescriptorSets[lCommandBufferIndex], 0, nullptr);
+		}		
+
 		vkCmdDrawIndexed(lCommandBuffers[lCommandBufferIndex], (uint32_t)lMesh.indices.size(), 1, 0, 0, 0);
 
 
@@ -1329,17 +1481,16 @@ int main(int argc, const char* argv[])
 	VK_CHECK(vkDeviceWaitIdle(lDevice));
 
 
-	vkDestroyDescriptorPool(lDevice, descriptorPool, nullptr);
-
-	vkDestroyDescriptorSetLayout(lDevice, descriptorSetLayout, nullptr);
+	vkDestroyDescriptorPool(lDevice, lDescriptorPool, nullptr);
+	
+	vkDestroyDescriptorSetLayout(lDevice, lDescriptorSetLayout, nullptr);
 
 	vkDestroyCommandPool(lDevice, lCommandPool, nullptr);
 
-	vkDestroyDescriptorSetLayout(lDevice, meshDescriptorSetLayout, nullptr);
-	vkDestroyDescriptorUpdateTemplate(lDevice, meshUpdateTpl, nullptr);
+	vkDestroyDescriptorUpdateTemplate(lDevice, lDescriptorUpdateTemplate, nullptr);
 
-	vkDestroyPipeline(lDevice, lMeshPipeline, nullptr);
-	vkDestroyPipelineLayout(lDevice, lMeshLayout, nullptr);
+	vkDestroyPipeline(lDevice, lPipeline, nullptr);
+	vkDestroyPipelineLayout(lDevice, lPipelineLayout, nullptr);
 
 	destroyShader(lDevice, lMeshVertexShader);
 	destroyShader(lDevice, lMeshFragmentShader);
@@ -1348,8 +1499,8 @@ int main(int argc, const char* argv[])
 	destroyBuffer(lDevice, lMeshIndexBuffer);
 	destroyBuffer(lDevice, lStageBuffer);
 
-	for (int i = 0; i < uniformBuffers.size(); ++i)
-		destroyBuffer(lDevice, uniformBuffers[i]);
+	for (int i = 0; i < lUniformBuffers.size(); ++i)
+		destroyBuffer(lDevice, lUniformBuffers[i]);
 
 
 	vkDestroyRenderPass(lDevice, lRenderPass, nullptr);
