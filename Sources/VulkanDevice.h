@@ -1,3 +1,4 @@
+#pragma once
 #include "vk_common.h"
 
 #include <vector>
@@ -39,4 +40,5 @@ struct VulkanDevice
     VkPhysicalDeviceFeatures mPhysicalDeviceFeatures;
     VkPhysicalDeviceFeatures mEnabledDeviceFeatures;
     VkPhysicalDeviceMemoryProperties mPhysicalDeviceMemoryProperties;
+
 };

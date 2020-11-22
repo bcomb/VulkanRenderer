@@ -1,7 +1,9 @@
+#pragma once
 #include "vk_common.h"
 #include <vector>
 
-struct VulkanContext
+
+struct VulkanInstance
 {	
 	operator VkInstance() const { return mVulkanInstance; }
 

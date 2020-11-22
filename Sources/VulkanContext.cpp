@@ -6,7 +6,7 @@
 
 
 /******************************************************************************/
-void VulkanContext::createInstance()
+void VulkanInstance::createInstance()
 {
 	// TODO : Check vulkan version available via vkEnumerateInstanceVersion
 	VkApplicationInfo lAppInfo = { VK_STRUCTURE_TYPE_APPLICATION_INFO };
@@ -48,7 +48,7 @@ void VulkanContext::createInstance()
 }
 
 /******************************************************************************/
-void VulkanContext::enumeratePhysicalDevices()
+void VulkanInstance::enumeratePhysicalDevices()
 {
 	uint32_t lPhysicalDevicesCount;
 	VK_CHECK(vkEnumeratePhysicalDevices(mVulkanInstance, &lPhysicalDevicesCount, NULL));
@@ -57,7 +57,7 @@ void VulkanContext::enumeratePhysicalDevices()
 }
 
 /******************************************************************************/
-VkPhysicalDevice VulkanContext::pickPhysicalDevice(VkQueueFlags pCapableBits)
+VkPhysicalDevice VulkanInstance::pickPhysicalDevice(VkQueueFlags pCapableBits)
 {
 	// Search for a DISCRETE_GPU
 	for (uint32_t i = 0; i < mPhysicalDevices.size(); ++i)

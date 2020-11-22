@@ -64,8 +64,8 @@ uint8_t rgba2x2[][4] =
 // vkUpdateDescriptorSets -> Vulkan 1_0
 // vkUpdateDescriptorSetWithTemplate -> Vulkan 1_1
 // vkCmdPushDescriptorSetWithTemplateKHR -> require VK_KHR_descriptor_update_template
-static bool pushDescriptorsSupported = true; // Bindless require //VK_KHR_push_descriptor
-static bool useDescriptorTemplate = true;	//VK_KHR_descriptor_update_template
+static bool pushDescriptorsSupported = false; // Bindless require //VK_KHR_push_descriptor
+static bool useDescriptorTemplate = false;	//VK_KHR_descriptor_update_template
 
 /******************************************************************************/
 VkDebugUtilsMessengerEXT gDebugMessenger;
@@ -618,11 +618,14 @@ void fullMemoryBarrier(VkCommandBuffer pCommandBuffer)
 
 struct Buffer
 {
-	VkBuffer buffer;
-	VkDeviceMemory memory;
-
-	void* data;	// if not null, persistant mapped data (in COHERENT)
-	size_t size;
+	VkBuffer mBuffer;					// The VkBuffer can be a huge buffer
+	VkDeviceMemory mMemory;				// The memory bind to this buffer
+	VkDescriptorBufferInfo mDescriptor;	// The region of the buffer concern by this buffer
+	VkBufferUsageFlags	mUsageFlags;	// Set at creation time
+	VkMemoryPropertyFlags mMemoryPropertyFlags;
+	void* mMappedData;					// The pointer of currently mapped data
+	VkDeviceSize mSize;					// The buffer size
+	VkDeviceSize mAlignment;			// Required alignment
 };
 
 
@@ -666,10 +669,17 @@ void createBuffer(Buffer& result, VulkanDevice& pVulkanDevice, size_t pSize, VkB
 		VK_CHECK(vkMapMemory(pVulkanDevice.mLogicalDevice, memory, 0ull, VK_WHOLE_SIZE, 0ull, &data));
 	}
 
-	result.buffer = buffer;
-	result.memory = memory;
-	result.size = pSize;
-	result.data = data;
+	result.mBuffer = buffer;
+	result.mMemory = memory;
+	result.mUsageFlags = pUsage;
+	result.mMemoryPropertyFlags = pProperties;
+	result.mAlignment = memoryRequirements.alignment;
+	result.mSize = pSize;
+	result.mMappedData = data;
+
+	result.mDescriptor.buffer = buffer;
+	result.mDescriptor.offset = 0;
+	result.mDescriptor.range = VK_WHOLE_SIZE;
 }
 
 
@@ -738,20 +748,20 @@ void uploadBufferToImage(VkDevice pDevice, VkCommandPool pCommandPool, VkCommand
 #pragma message("TODO : robust way to identify persistent map or not")
 	assert(pDst.imageData != NULL);
 	uint32_t lImageDataSize = pDst.width * pDst.height * 4;
-	assert(lImageDataSize <= pSrc.size);
+	assert(lImageDataSize <= pSrc.mSize);
 	// pDst.data is a persistent mapped buffer
 	if
-		(pSrc.data)
+		(pSrc.mMappedData)
 	{
 		// At the moment we conisder the data is already map in VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-		memcpy(pSrc.data, pDst.imageData, lImageDataSize);
+		memcpy(pSrc.mMappedData, pDst.imageData, lImageDataSize);
 	}
 	else
 	{
 		void* lData = NULL;
-		VK_CHECK(vkMapMemory(pDevice, pSrc.memory, 0, VK_WHOLE_SIZE, 0, &lData));
+		VK_CHECK(vkMapMemory(pDevice, pSrc.mMemory, 0, VK_WHOLE_SIZE, 0, &lData));
 		memcpy(lData, pDst.imageData, lImageDataSize);
-		vkUnmapMemory(pDevice, pSrc.memory);
+		vkUnmapMemory(pDevice, pSrc.mMemory);
 	}
 
 	if (pDeleteImageData)
@@ -759,7 +769,7 @@ void uploadBufferToImage(VkDevice pDevice, VkCommandPool pCommandPool, VkCommand
 		free(pDst.imageData);
 		pDst.imageData = NULL;
 	}
-
+	
 	VK_CHECK(vkResetCommandPool(pDevice, pCommandPool, 0));
 	VK_CHECK(vkResetCommandBuffer(pCommandBuffer, 0));
 
@@ -786,7 +796,7 @@ void uploadBufferToImage(VkDevice pDevice, VkCommandPool pCommandPool, VkCommand
 																	VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 	vkCmdPipelineBarrier(pCommandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, NULL, 0, NULL, 1, &lImageBarrier);
 
-	vkCmdCopyBufferToImage(pCommandBuffer, pSrc.buffer, pDst.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &regions);
+	vkCmdCopyBufferToImage(pCommandBuffer, pSrc.mBuffer, pDst.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &regions);
 
 	lImageBarrier = imageBarrier(pDst.image, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 #pragma message("TODO : manage texture access in vertex pipeline")
@@ -813,17 +823,17 @@ void uploadBuffer(VkDevice pDevice, VkCommandPool pCommandPool, VkCommandBuffer 
 #pragma message("TODO : robust way to identify persistent map or not")
 	// pDst.data is a persistent mapped buffer
 	if
-		(pSrc.data)
+		(pSrc.mMappedData)
 	{
 		// At the moment we conisder the data is already map in VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-		memcpy(pSrc.data, pHostData, pHostDataSize);
+		memcpy(pSrc.mMappedData, pHostData, pHostDataSize);
 	}
 	else
 	{
 		void* lData = NULL;
-		VK_CHECK(vkMapMemory(pDevice, pSrc.memory, 0, VK_WHOLE_SIZE, 0, &lData));
+		VK_CHECK(vkMapMemory(pDevice, pSrc.mMemory, 0, VK_WHOLE_SIZE, 0, &lData));
 		memcpy(lData, pHostData, pHostDataSize);
-		vkUnmapMemory(pDevice, pSrc.memory);
+		vkUnmapMemory(pDevice, pSrc.mMemory);
 	}
 	
 	VK_CHECK(vkResetCommandPool(pDevice, pCommandPool, 0));
@@ -835,9 +845,9 @@ void uploadBuffer(VkDevice pDevice, VkCommandPool pCommandPool, VkCommandBuffer 
 
 #pragma message("Should be device data size ?")
 	VkBufferCopy regions = { 0, 0, VkDeviceSize(pHostDataSize) };
-	vkCmdCopyBuffer(pCommandBuffer, pSrc.buffer, pDst.buffer, 1, &regions);
+	vkCmdCopyBuffer(pCommandBuffer, pSrc.mBuffer, pDst.mBuffer, 1, &regions);
 
-	VkBufferMemoryBarrier copyBufferBarrier = bufferBarrier(pDst.buffer, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT);
+	VkBufferMemoryBarrier copyBufferBarrier = bufferBarrier(pDst.mBuffer, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT);
 	vkCmdPipelineBarrier(pCommandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 1, &copyBufferBarrier, 0, nullptr);
 
 	VK_CHECK(vkEndCommandBuffer(pCommandBuffer));
@@ -859,8 +869,8 @@ void destroyBuffer(VkDevice pDevice, const Buffer& pBuffer)
 	// do we need to unmap?
 	//vkUnmapMemory(pDevice, pBuffer.memory); // for now we use persistent mapping
 
-	vkDestroyBuffer(pDevice, pBuffer.buffer, nullptr);
-	vkFreeMemory(pDevice, pBuffer.memory, nullptr);
+	vkDestroyBuffer(pDevice, pBuffer.mBuffer, nullptr);
+	vkFreeMemory(pDevice, pBuffer.mMemory, nullptr);
 }
 
 void getWindowSize(GLFWwindow* pWindow, uint32_t& pWidth, uint32_t& pHeight)
@@ -928,7 +938,7 @@ int main(int argc, const char* argv[])
 	glfwWindowHint(GLFW_DECORATED, GLFW_TRUE);
 
 
-	VulkanContext lVulkanInstance;
+	VulkanInstance lVulkanInstance;
 	lVulkanInstance.createInstance();
 	lVulkanInstance.enumeratePhysicalDevices();
 	VkPhysicalDevice lPhysicalDevice = lVulkanInstance.pickPhysicalDevice(VK_QUEUE_GRAPHICS_BIT /*| VK_QUEUE_TRANSFER_BIT*/);
@@ -944,8 +954,6 @@ int main(int argc, const char* argv[])
 	GLFWwindow* lWindow = glfwCreateWindow(lWindowWidth, lWindowHeight, "VulkanRenderer", 0, 0);
 	assert(lWindow);
 	glfwSetWindowSizeCallback(lWindow, window_size_callback);
-
-
 	
 	getWindowSize(lWindow, lWindowWidth, lWindowHeight);
 
@@ -1128,10 +1136,10 @@ int main(int argc, const char* argv[])
 	{
 		// UBO
 		createBuffer(lUniformBuffers[i], lDevice, sizeof(Object), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-		((Object*)lUniformBuffers[i].data)->color[0] = 1.0f;
-		((Object*)lUniformBuffers[i].data)->color[1] = 0.0f;
-		((Object*)lUniformBuffers[i].data)->color[2] = 0.0f;
-		((Object*)lUniformBuffers[i].data)->color[3] = 1.0f;
+		((Object*)lUniformBuffers[i].mMappedData)->color[0] = 1.0f;
+		((Object*)lUniformBuffers[i].mMappedData)->color[1] = 0.0f;
+		((Object*)lUniformBuffers[i].mMappedData)->color[2] = 0.0f;
+		((Object*)lUniformBuffers[i].mMappedData)->color[3] = 1.0f;
 
 		// TextureImage view
 		lTextureImageViews[i] = vkh::createImageView(lDevice, lTextureImage.image, lTextureImage.format);
@@ -1178,7 +1186,7 @@ int main(int argc, const char* argv[])
 			// ----- 1st resource
 			{
 				VkDescriptorBufferInfo bufferInfo = {};
-				bufferInfo.buffer = lUniformBuffers[i].buffer;
+				bufferInfo.buffer = lUniformBuffers[i].mBuffer;
 				bufferInfo.offset = 0;
 				bufferInfo.range = sizeof(Object);
 
@@ -1304,6 +1312,8 @@ int main(int argc, const char* argv[])
 		//VK_CHECK(vkResetCommandPool(lDevice, lCommandPool, 0));
 		VK_CHECK(vkResetCommandBuffer(lCommandBuffers[lCommandBufferIndex], 0));
 		
+		//VkDescriptorPoolResetFlags
+		//VK_CHECK(vkResetDescriptorPool(lDevice, lDescriptorPool, 0)); // SHOULD HAVE one pool per swapchain, cause some descriptor are in use in the previouus command buufer
 
 		VkCommandBufferBeginInfo lBeginInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
 		lBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -1336,10 +1346,10 @@ int main(int argc, const char* argv[])
 
 		// Update the uniform
 		// Test, should i have to use vkFlushMappedMemoryRanges?. or it's not necessary with COHERENT MEMORY
-		((Object*)lUniformBuffers[lCommandBufferIndex].data)->color[0] = lCommandBufferIndex == 0 ? (rand() / float(RAND_MAX)) : 0.0f;
-		((Object*)lUniformBuffers[lCommandBufferIndex].data)->color[1] = lCommandBufferIndex == 1 ? (rand() / float(RAND_MAX)) : 0.0f;
-		((Object*)lUniformBuffers[lCommandBufferIndex].data)->color[2] = 0.0f;
-		((Object*)lUniformBuffers[lCommandBufferIndex].data)->color[3] = 1.0f;
+		((Object*)lUniformBuffers[lCommandBufferIndex].mMappedData)->color[0] = lCommandBufferIndex == 0 ? (rand() / float(RAND_MAX)) : 0.0f;
+		((Object*)lUniformBuffers[lCommandBufferIndex].mMappedData)->color[1] = lCommandBufferIndex == 1 ? (rand() / float(RAND_MAX)) : 0.0f;
+		((Object*)lUniformBuffers[lCommandBufferIndex].mMappedData)->color[2] = 0.0f;
+		((Object*)lUniformBuffers[lCommandBufferIndex].mMappedData)->color[3] = 1.0f;
 		/* Don't needed as UBO are HOST_VISIBLE
 		VkMappedMemoryRange range = { VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE };
 		range.memory = uniformBuffers[lCommandBufferIndex].memory;
@@ -1364,8 +1374,8 @@ int main(int argc, const char* argv[])
 
 		vkCmdBindPipeline(lCommandBuffers[lCommandBufferIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, lPipeline);
 		VkDeviceSize dummyOffset = 0;
-		vkCmdBindVertexBuffers(lCommandBuffers[lCommandBufferIndex], 0, 1, &lMeshVertexBuffer.buffer, &dummyOffset);
-		vkCmdBindIndexBuffer(lCommandBuffers[lCommandBufferIndex], lMeshIndexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+		vkCmdBindVertexBuffers(lCommandBuffers[lCommandBufferIndex], 0, 1, &lMeshVertexBuffer.mBuffer, &dummyOffset);
+		vkCmdBindIndexBuffer(lCommandBuffers[lCommandBufferIndex], lMeshIndexBuffer.mBuffer, 0, VK_INDEX_TYPE_UINT32);
 
 #pragma message("TODO : reactivate this optimal way to bind descriptor (PushTemplate)")
 		if (useDescriptorTemplate)
@@ -1373,7 +1383,7 @@ int main(int argc, const char* argv[])
 			// Bind resource
 			DescriptorInfo descriptorInfos[] =
 			{
-				DescriptorInfo(lUniformBuffers[lCommandBufferIndex].buffer, 0, VK_WHOLE_SIZE),
+				DescriptorInfo(lUniformBuffers[lCommandBufferIndex].mBuffer, 0, VK_WHOLE_SIZE),
 				DescriptorInfo(lTextureSampler, lTextureImageViews[lCommandBufferIndex], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL),
 			};
 
@@ -1385,14 +1395,7 @@ int main(int argc, const char* argv[])
 			}
 			else
 			{
-				DescriptorInfo descriptorInfos[] =
-				{
-					DescriptorInfo(lUniformBuffers[lCommandBufferIndex].buffer, 0, VK_WHOLE_SIZE),
-					DescriptorInfo(lTextureSampler, lTextureImageViews[lCommandBufferIndex], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL),
-				};
-
 				VkDescriptorSetAllocateInfo allocateInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-
 				allocateInfo.descriptorPool = lDescriptorPool;
 				allocateInfo.descriptorSetCount = 1;
 				allocateInfo.pSetLayouts = &lDescriptorSetLayout;
@@ -1408,6 +1411,8 @@ int main(int argc, const char* argv[])
 		else
 		{
 			// vkUpdateDescriptorSets
+
+
 			// Vulkan 1.0
 			vkCmdBindDescriptorSets(lCommandBuffers[lCommandBufferIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, lPipelineLayout, 0, 1, &lDescriptorSets[lCommandBufferIndex], 0, nullptr);
 		}		

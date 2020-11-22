@@ -2,11 +2,15 @@ project (rendererVK)
 
 set(sources
     main.cpp
+    Application.h Application.cpp
+    Window.h Window.cpp
     vk_common.h
     Shaders.h Shaders.cpp
     VulkanContext.h VulkanContext.cpp
     VulkanDevice.h VulkanDevice.cpp
-    VulkanHelper.h VulkanHelper.cpp
+    VulkanBuffer.h VulkanBuffer.cpp
+    VulkanTexture.h VulkanTexture.cpp
+    VulkanHelper.h VulkanHelper.cpp    
     VulkanSwapchain.h VulkanSwapchain.cpp)
 
 source_group("Sources" FILES ${sources})

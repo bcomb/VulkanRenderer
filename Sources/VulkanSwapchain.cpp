@@ -7,7 +7,7 @@
 #include <algorithm>
 
 /******************************************************************************/
-VulkanSwapchain::VulkanSwapchain(struct VulkanContext* pContext, struct VulkanDevice* pDevice)
+VulkanSwapchain::VulkanSwapchain(struct VulkanInstance* pContext, struct VulkanDevice* pDevice)
 : mContext(pContext)
 , mDevice(pDevice)
 {

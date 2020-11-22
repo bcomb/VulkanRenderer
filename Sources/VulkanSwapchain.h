@@ -1,3 +1,4 @@
+#pragma once
 #include "vk_common.h"
 
 #include <vector>
@@ -5,7 +6,7 @@
 // Link between the windowing system and vulkan
 struct VulkanSwapchain
 {
-    explicit VulkanSwapchain(struct VulkanContext* pContext, struct VulkanDevice* pDevice);
+    explicit VulkanSwapchain(struct VulkanInstance* pContext, struct VulkanDevice* pDevice);
     
 #ifdef VK_USE_PLATFORM_WIN32_KHR
     void initSurface(void* pPlatformHandle, void* pPlatformWindow);
@@ -22,7 +23,7 @@ struct VulkanSwapchain
     void cleanUp();
 
 
-    struct VulkanContext* mContext;
+    struct VulkanInstance* mContext;
     struct VulkanDevice* mDevice;
 
     VkSurfaceKHR mSurface;
