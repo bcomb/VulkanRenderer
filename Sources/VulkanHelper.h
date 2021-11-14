@@ -1,6 +1,12 @@
 #include "vk_common.h"
 
-// 
+#include <vector>
+
+
+// Forward declaration
+struct VulkanSwapchain;
+
+// Helper functions
 namespace vkh
 {
 	VkSemaphore createSemaphore(VkDevice pDevice);
@@ -10,4 +16,5 @@ namespace vkh
 	VkRenderPass createRenderPass(VkDevice pDevice, VkFormat pFormat);
 	VkFramebuffer createFramebuffer(VkDevice pDevice, VkRenderPass pRenderPass, VkImageView* imageViews, uint32_t imageViewCount, uint32_t pWidth, uint32_t pHeight);
 	VkSampler createTextureSampler(VkDevice pDevice);
+	std::vector<VkFramebuffer> createSwapchainFramebuffer(VkDevice pDevice, VkRenderPass pRenderPass, const VulkanSwapchain& pSwapchain);
 }

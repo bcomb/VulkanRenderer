@@ -54,7 +54,7 @@ void VulkanDevice::createLogicalDevice(VkQueueFlags pRequestedQueueTypes)
 	}
 	else
 	{
-		mQueueFamilyIndices[VulkanQueueType::Graphics] = VK_NULL_HANDLE;
+		mQueueFamilyIndices[VulkanQueueType::Graphics] = 0;// VK_NULL_HANDLE;
 	}
 
 	// Dedicated compute queue

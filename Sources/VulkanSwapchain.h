@@ -35,7 +35,7 @@ struct VulkanSwapchain
 
     // Current swapchain information
     VkSwapchainKHR mSwapchain = {};
-    uint32_t mWidth, mHeight;           // The real size of Width/heigh, can be different from requested
+    uint32_t mWidth, mHeight;           // The real size of Width/height, can be different from requested
     std::vector<VkImage> mImages;
     std::vector<VkImageView> mImageViews;
     std::vector<VkFramebuffer> mFramebuffers;

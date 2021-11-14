@@ -1,4 +1,5 @@
 #include "VulkanHelper.h"
+#include "VulkanSwapchain.h"
 
 #include <assert.h>
 
@@ -131,7 +132,7 @@ VkRenderPass createRenderPass(VkDevice pDevice, VkFormat pFormat)
 }
 
 /******************************************************************************/
-VkFramebuffer createFramebuffer(VkDevice pDevice, VkRenderPass pRenderPass, VkImageView* imageViews, uint32_t imageViewCount, uint32_t pWidth, uint32_t pHeight)
+VkFramebuffer createFramebuffer(VkDevice pDevice, VkRenderPass pRenderPass, const VkImageView* imageViews, uint32_t imageViewCount, uint32_t pWidth, uint32_t pHeight)
 {
 	VkFramebufferCreateInfo createInfo = { VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
 	//VkFramebufferCreateFlags    flags;
@@ -174,6 +175,18 @@ VkSampler createTextureSampler(VkDevice pDevice)
 	VkSampler sampler;
 	VK_CHECK(vkCreateSampler(pDevice, &createInfo, NULL, &sampler));
 	return sampler;
+}
+
+/******************************************************************************/
+std::vector<VkFramebuffer> createSwapchainFramebuffer(VkDevice pDevice, VkRenderPass pRenderPass, const VulkanSwapchain& pSwapchain)
+{
+	std::vector<VkFramebuffer> lSwapChainFramebuffer(pSwapchain.imageCount());
+	for (uint32_t i = 0; i < pSwapchain.imageCount(); ++i)
+	{
+		lSwapChainFramebuffer[i] = vkh::createFramebuffer(pDevice, pRenderPass, &pSwapchain.mImageViews[i], 1, pSwapchain.mWidth, pSwapchain.mHeight);
+	}
+
+	return lSwapChainFramebuffer;
 }
 
 } // ns vkh

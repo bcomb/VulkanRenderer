@@ -25,6 +25,8 @@
 #include "VulkanSwapchain.h"
 #include "VulkanHelper.h"
 
+#include "Window.h"
+
 struct vec4
 {
 	float data[4];
@@ -511,12 +513,12 @@ bool loadMesh(Mesh& pMesh, const char* pPath, bool pNormalized = false)
 	//struct Triangle { uint32_t i[3]; };
 	//std::random_shuffle((Triangle*)opt_indices.data(), (Triangle*)(opt_indices.data() + opt_indices.size()));
 
-	if
+	/*if
 		(1)
 	{
 		meshopt_optimizeVertexCache(opt_indices.data(), opt_indices.data(), opt_indices.size(), opt_vertices.size());
 		meshopt_optimizeVertexFetch(opt_vertices.data(), opt_indices.data(), opt_indices.size(), opt_vertices.data(), opt_vertices.size(), sizeof(Vertex));
-	}
+	}*/
 
 	std::swap(opt_vertices, pMesh.vertices);
 	std::swap(opt_indices, pMesh.indices);
@@ -891,18 +893,6 @@ void destroyFramebuffers(VkDevice pDevice, std::vector<VkFramebuffer>& pFramebuf
 	pFramebuffers.clear();
 }
 
-void createSwapchainFramebuffer(VkDevice pDevice, VkRenderPass pRenderPass, VulkanSwapchain& pSwapchain, std::vector<VkFramebuffer>& pFramebuffers)
-{	
-	assert(pFramebuffers.size() == 0); // possible lost of handle ref
-	std::vector<VkFramebuffer> lSwapChainFramebuffer(pSwapchain.imageCount());
-	for (uint32_t i = 0; i < pSwapchain.imageCount(); ++i)
-	{
-		lSwapChainFramebuffer[i] = vkh::createFramebuffer(pDevice, pRenderPass, &pSwapchain.mImageViews[i], 1, pSwapchain.mWidth, pSwapchain.mHeight);
-	}
-
-	pFramebuffers.swap(lSwapChainFramebuffer);
-}
-
 
 // Create Image	
 bool loadImage(VulkanDevice pDevice, Image& pImage, const char* pFilename)
@@ -921,9 +911,50 @@ bool loadImage(VulkanDevice pDevice, Image& pImage, const char* pFilename)
 	return false;
 }
 
+// Refactor
+void mainLoop()
+{
+	VK_CHECK(volkInitialize());
+
+	printf("Hello VulkanRenderer\n");
+	int lSuccess = glfwInit();
+	assert(lSuccess);
+	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);	// MUST BE SET or SwapChain creation fail
+	glfwWindowHint(GLFW_DECORATED, GLFW_TRUE);
+
+
+	VulkanInstance* lVulkanInstance = new VulkanInstance;
+	lVulkanInstance->createInstance();
+	lVulkanInstance->enumeratePhysicalDevices();
+	VkPhysicalDevice lPhysicalDevice = lVulkanInstance->pickPhysicalDevice(VK_QUEUE_GRAPHICS_BIT /*| VK_QUEUE_TRANSFER_BIT*/);
+
+#ifdef _DEBUG
+	registerDebugMessenger(lVulkanInstance->mVulkanInstance);
+#endif
+
+	VulkanDevice* lDevice = new VulkanDevice(lPhysicalDevice);
+	lDevice->createLogicalDevice(VK_QUEUE_GRAPHICS_BIT /*| VK_QUEUE_TRANSFER_BIT*/); // For the moment use only one queue
+
+	VulkanContext lContext = { lVulkanInstance, lDevice };
+
+	WindowAttributes lWinAttr;
+	Window* lWindow = new Window(lContext, lWinAttr, "VulkanTest");
+
+	while (1)
+	{
+		glfwPollEvents();
+		lWindow->beginFrame();
+		lWindow->render();
+		lWindow->present();
+	}
+
+}
+
 // Entry point
 int main(int argc, const char* argv[])
 {
+	mainLoop();
+
 	// Initial windows configuration
 	uint32_t lWindowWidth = 512, lWindowHeight = 512;
 	uint32_t lDesiredSwapchainImageCount = 2;
@@ -988,8 +1019,8 @@ int main(int argc, const char* argv[])
 	// Create need mesh ressources
 	Mesh lMesh;
 	//loadTriangleMesh(lMesh);
-	loadQuadMesh(lMesh);
- 	//bool lResult = loadMesh(lMesh, R"path(E:\Data\obj\bicycle.obj)path", true);	
+	//loadQuadMesh(lMesh);
+ 	bool lResult = loadMesh(lMesh, R"path(E:\Data\obj\bicycle.obj)path", true);	
 	//bool lResult = loadMesh(lMesh, R"path(F:\Data\Models\stanford\kitten.obj)path");	
 	//bool lResult = loadMesh(lMesh, R"path(F:\Data\Models\stanford\debug.obj)path");
 	//assert(lResult);
@@ -1279,9 +1310,7 @@ int main(int argc, const char* argv[])
 	double cpuTimeAvg = 0;
 
 
-	std::vector<VkFramebuffer> lSwapchainFramebuffers;
-	createSwapchainFramebuffer(lDevice, lRenderPass, lVulkanSwapchain, lSwapchainFramebuffers);
-
+	std::vector<VkFramebuffer> lSwapchainFramebuffers = vkh::createSwapchainFramebuffer(lDevice, lRenderPass, lVulkanSwapchain);
 
 	// MainLoop
 	uint32_t lCommandBufferIndex = COMMAND_BUFFER_COUNT-1;
@@ -1299,7 +1328,7 @@ int main(int argc, const char* argv[])
 			lVulkanSwapchain.resizeSwapchain(lWindowWidth, lWindowHeight, lDesiredSwapchainImageCount, lDesiredVSync);
 
 			destroyFramebuffers(lDevice, lSwapchainFramebuffers);
-			createSwapchainFramebuffer(lDevice, lRenderPass, lVulkanSwapchain, lSwapchainFramebuffers);
+			lSwapchainFramebuffers = vkh::createSwapchainFramebuffer(lDevice, lRenderPass, lVulkanSwapchain);
 		}
 
 		lCommandBufferIndex = (++lCommandBufferIndex) % COMMAND_BUFFER_COUNT;
@@ -1328,7 +1357,7 @@ int main(int argc, const char* argv[])
 		renderPassInfo.renderPass = lRenderPass;
 		renderPassInfo.framebuffer = lSwapchainFramebuffers[lImageIndex];
 		renderPassInfo.renderArea = { {0,0} , {(uint32_t)lWindowWidth, (uint32_t)lWindowHeight} };
-		renderPassInfo.clearValueCount = 1;
+		renderPassInfo.clearValueCount = 1;	// MRT
 		renderPassInfo.pClearValues = &lClearColor;
 
 		// barrier not needed, LayoutTransition are done during BeginRenderPass/EndRenderPass
@@ -1417,7 +1446,8 @@ int main(int argc, const char* argv[])
 			vkCmdBindDescriptorSets(lCommandBuffers[lCommandBufferIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, lPipelineLayout, 0, 1, &lDescriptorSets[lCommandBufferIndex], 0, nullptr);
 		}		
 
-		vkCmdDrawIndexed(lCommandBuffers[lCommandBufferIndex], (uint32_t)lMesh.indices.size(), 1, 0, 0, 0);
+		for(int i =0; i <100; ++i)
+			vkCmdDrawIndexed(lCommandBuffers[lCommandBufferIndex], (uint32_t)lMesh.indices.size(), 1, 0, 0, 0);
 
 
 
@@ -1438,7 +1468,7 @@ int main(int argc, const char* argv[])
 
 
 		// https://github.com/KhronosGroup/Vulkan-Docs/wiki/Synchronization-Examples
-		VkPipelineStageFlags lSubmitStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT; // why
+		VkPipelineStageFlags lSubmitStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT; //  Pipeline stages used to wait at for graphics queue submissions
 		VkSubmitInfo lSubmitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
 		lSubmitInfo.waitSemaphoreCount = 1;
 		lSubmitInfo.pWaitSemaphores = &lAcquireSemaphore;
@@ -1458,7 +1488,7 @@ int main(int argc, const char* argv[])
 
 		++frameCount;
 		VkPerformanceCounterResultKHR queryResults[2] = {};
-		vkGetQueryPoolResults(lDevice, lTimeStampQueries, 0, 2, sizeof(queryResults), queryResults, sizeof(queryResults[0]), VK_QUERY_RESULT_64_BIT /*| VK_QUERY_RESULT_WAIT_BIT*/);
+		vkGetQueryPoolResults(lDevice, lTimeStampQueries, 0, 2, sizeof(queryResults), queryResults, sizeof(queryResults[0]), VK_QUERY_RESULT_64_BIT /* | VK_QUERY_RESULT_WAIT_BIT*/);
 
 		double gpuFrameBegin = double(queryResults[0].uint64) * lDevice.mPhysicalDeviceProperties.limits.timestampPeriod * 1e-6; // ms
 		double gpuFrameEnd = double(queryResults[1].uint64) * lDevice.mPhysicalDeviceProperties.limits.timestampPeriod * 1e-6;

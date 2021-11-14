@@ -6,6 +6,8 @@
 
 #include <stdint.h>
 
+const uint32_t COMMAND_BUFFER_COUNT = 2;
+
 struct VulkanContext
 {
     VulkanInstance* mInstance;
@@ -26,7 +28,7 @@ struct WindowAttributes
 class Window
 {
 public:
-    Window(VulkanContext* pVulkanContext, WindowAttributes pRequestAttribs, const char* pName = nullptr);
+    Window(VulkanContext pVulkanContext, WindowAttributes pRequestAttribs, const char* pName = nullptr);
     ~Window();
     bool shouldClose() const;
     uint32_t width() const;
@@ -35,8 +37,14 @@ public:
     // Native handle
     void* winId() const;
 
-    void beginFrame(); // acquire the next image of the swapchain
+    /// <summary>
+    /// Acquire the next image of the swapchain to render in
+    /// </summary>
+    /// <returns>The swapchain image index</returns>
+    uint32_t beginFrame(); // acquire the next image of the swapchain
     void present(); // swap
+
+    void render();
 
 protected:
     // GLFW callback
@@ -50,10 +58,25 @@ protected:
     WindowAttributes mAttribs; // What we obtain
 
     struct GLFWwindow* mGLFWwindow = nullptr;
-    VulkanContext* mVulkanContext = nullptr;
+    VulkanContext mVulkanContext;
+
     VulkanSwapchain* mVulkanSwapchain = nullptr;
+    VkRenderPass mRenderPass = VK_NULL_HANDLE;
+    std::vector<VkFramebuffer> mSwapchainFramebuffers;
+
+    VkCommandPool mCommandPool; // One per thread
+
+ 
+    VkCommandBuffer mCommandBuffers[COMMAND_BUFFER_COUNT];
+    VkFence         mCommandBufferFences[COMMAND_BUFFER_COUNT]; // Fence signaled when quue submit finished
+    uint32_t        mCommandBufferIndex = 0;
+
+    VkSubmitInfo mSubmitInfo;
+
+    // Swap chain presentation semaphore
     VkSemaphore mAcquireSemaphore = VK_NULL_HANDLE;
     VkSemaphore mReleaseSemaphore = VK_NULL_HANDLE;
+
     uint32_t mSwapchainImageIndex = 0;
 
     bool mShouldClose = false;
