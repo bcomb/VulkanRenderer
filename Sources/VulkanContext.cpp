@@ -6,26 +6,29 @@
 
 
 /******************************************************************************/
-void VulkanInstance::createInstance()
+void VulkanInstance::createInstance(uint32_t pVersion, bool pUseValidationLayers)
 {
 	// TODO : Check vulkan version available via vkEnumerateInstanceVersion
 	VkApplicationInfo lAppInfo = { VK_STRUCTURE_TYPE_APPLICATION_INFO };
-	lAppInfo.apiVersion = VK_API_VERSION_1_1;
+	lAppInfo.apiVersion = pVersion;
 
 	// Create the VulkanInstance
 	VkInstanceCreateInfo lCreateInfo = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
 	lCreateInfo.pApplicationInfo = &lAppInfo;
 
-#ifdef _DEBUG
-	// https://vulkan-tutorial.com/Drawing_a_triangle/Setup/Validation_layers
-	const char* lVulkanLayers[] =
+	if (pUseValidationLayers)
 	{
-		"VK_LAYER_KHRONOS_validation",
-	};
+#ifdef _DEBUG
+		// https://vulkan-tutorial.com/Drawing_a_triangle/Setup/Validation_layers
+		const char* lVulkanLayers[] =
+		{
+			"VK_LAYER_KHRONOS_validation",
+		};
 
-	lCreateInfo.enabledLayerCount = ARRAY_COUNT(lVulkanLayers);
-	lCreateInfo.ppEnabledLayerNames = lVulkanLayers;
+		lCreateInfo.enabledLayerCount = ARRAY_COUNT(lVulkanLayers);
+		lCreateInfo.ppEnabledLayerNames = lVulkanLayers;
 #endif
+	}
 
 	// Extension
 	const char* lVulkanExtensions[] =

@@ -6,7 +6,7 @@
 
 #include <stdint.h>
 
-const uint32_t COMMAND_BUFFER_COUNT = 2;
+const uint32_t FRAME_BUFFER_COUNT = 2;  // Double buffer
 
 struct VulkanContext
 {
@@ -25,6 +25,20 @@ struct WindowAttributes
 };
 
 
+struct CommandBuffer
+{
+    VkCommandPool   mCommandPool;       // We use one command pool in case we want to use multiple threads (command pool are not thread safe)
+    VkCommandBuffer mCommandBuffer;
+    VkFence mFence;                     // Fence signaled when queue submit finished
+};
+
+struct FrameData
+{
+    CommandBuffer mCommandBuffer;       // Command buffer for rendering the frame
+    VkSemaphore mSwapchainSemaphore;    // Wait the swapchain image to be available
+    VkSemaphore mRenderSemaphore;       // Control presenting image
+};
+
 class Window
 {
 public:
@@ -41,10 +55,11 @@ public:
     /// Acquire the next image of the swapchain to render in
     /// </summary>
     /// <returns>The swapchain image index</returns>
-    uint32_t beginFrame(); // acquire the next image of the swapchain
-    void present(); // swap
+    void beginFrame(); // acquire the next image of the swapchain
 
     void render();
+
+    void present(); // swap the image to the screen, increment current frame counter
 
 protected:
     // GLFW callback
@@ -66,18 +81,12 @@ protected:
 
     VkCommandPool mCommandPool; // One per thread
 
- 
-    VkCommandBuffer mCommandBuffers[COMMAND_BUFFER_COUNT];
-    VkFence         mCommandBufferFences[COMMAND_BUFFER_COUNT]; // Fence signaled when quue submit finished
-    uint32_t        mCommandBufferIndex = 0;
-
     VkSubmitInfo mSubmitInfo;
 
-    // Swap chain presentation semaphore
-    VkSemaphore mAcquireSemaphore = VK_NULL_HANDLE;
-    VkSemaphore mReleaseSemaphore = VK_NULL_HANDLE;
-
-    uint32_t mSwapchainImageIndex = 0;
+    FrameData mFrames[FRAME_BUFFER_COUNT];
+    uint32_t mCurrentFrame = 0;
 
     bool mShouldClose = false;
+
+    inline FrameData& getCurrentFrame() { return mFrames[mCurrentFrame % FRAME_BUFFER_COUNT]; }
 };

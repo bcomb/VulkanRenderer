@@ -78,13 +78,13 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
 	void* pUserData)
 {
 	const char* errorTypeStr =
-		(messageType & VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT)
+		(messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT)
 		? "[VERBOSE] "
-		: (messageType & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT)
+		: (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT)
 		? "[INFO] "
-		: (messageType & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
+		: (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
 		? "[WARNING] "
-		: (messageType & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
+		: (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
 		? "[ERROR] "
 		: "[UNKNOW] ";
 
@@ -96,7 +96,12 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
 	OutputDebugString(errorTypeStr); OutputDebugString(pCallbackData->pMessage); OutputDebugString("\n");
 #endif
 
-	if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)	assert(!"ERROR");
+	if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT
+		&& !(messageType & VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT)	// VUID-VkSamplerCreateInfo-anisotropyEnable-01070: Validation raise this error on vkCreateSwapchainKHR (which is a bug of validation layer)
+		)
+	{
+		assert(!"ERROR");
+	}
 
 	return VK_FALSE;
 }
@@ -141,46 +146,6 @@ VkPhysicalDevice pickPhysicalDevice(uint32_t pPhysicalDevicesCount, const VkPhys
 	return VK_NULL_HANDLE;
 }
 
-VkInstance createInstance()
-{
-	// TODO : Check vulkan version available via vkEnumerateInstanceVersion
-	VkApplicationInfo lAppInfo = { VK_STRUCTURE_TYPE_APPLICATION_INFO };
-	lAppInfo.apiVersion = VK_API_VERSION_1_1;
-
-	// Create the VulkanInstance
-	VkInstance lVulkanInstance;
-	VkInstanceCreateInfo lCreateInfo = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
-	lCreateInfo.pApplicationInfo = &lAppInfo;
-
-#ifdef _DEBUG
-	// https://vulkan-tutorial.com/Drawing_a_triangle/Setup/Validation_layers
-	const char* lVulkanLayers[] =
-	{
-		"VK_LAYER_KHRONOS_validation",	
-	};
-
-	lCreateInfo.enabledLayerCount = ARRAY_COUNT(lVulkanLayers);
-	lCreateInfo.ppEnabledLayerNames = lVulkanLayers;
-#endif
-
-	// Extension
-	const char* lVulkanExtensions[] =
-	{
-#ifdef _DEBUG
-		VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
-#endif
-		VK_KHR_SURFACE_EXTENSION_NAME,
-#ifdef VK_USE_PLATFORM_WIN32_KHR
-		VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
-#endif
-	};
-
-	lCreateInfo.enabledExtensionCount = ARRAY_COUNT(lVulkanExtensions);
-	lCreateInfo.ppEnabledExtensionNames = lVulkanExtensions;
-	VK_CHECK(vkCreateInstance(&lCreateInfo, nullptr, &lVulkanInstance));
-
-	return lVulkanInstance;
-}
 
 VkSurfaceKHR createSurface(VkInstance pVkInstance, GLFWwindow* pWindow)
 {
@@ -280,6 +245,7 @@ VkQueryPool createQueryPool(VkDevice pDevice, uint32_t pQueryCount)
 VkDevice createDevice(VkInstance pInstance, VkPhysicalDevice pPhysicalDevice, uint32_t* pFamilyIndex)
 {
 	VkPhysicalDeviceFeatures lRequiredDeviceFeatures = {};
+	lRequiredDeviceFeatures.samplerAnisotropy = VK_TRUE;	// WHy, since vulkan 1.3, i get an error at Swapchain creation if not set to true
 
 	const float lQueuePriority[1] = { 1.0f };
 	VkDeviceQueueCreateInfo lDeviceQueueCreateInfo = { VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO };
@@ -298,6 +264,8 @@ VkDevice createDevice(VkInstance pInstance, VkPhysicalDevice pPhysicalDevice, ui
 	};
 	lDeviceCreateInfo.enabledExtensionCount = ARRAY_COUNT(lDeviceExtensions);
 	lDeviceCreateInfo.ppEnabledExtensionNames = lDeviceExtensions;
+
+	lDeviceCreateInfo.pEnabledFeatures = &lRequiredDeviceFeatures;
 	// Previous implementations of Vulkan made a distinction between instance and device specific validation layers,
 	// but this is no longer the case. That means that the enabledLayerCountand ppEnabledLayerNames fields 
 	// of VkDeviceCreateInfo are ignored by up - to - date implementations.However,
@@ -533,42 +501,6 @@ void window_size_callback(GLFWwindow* window, int width, int height)
 
 }
 
-VkImageMemoryBarrier imageBarrier(VkImage pImage, 
-	VkAccessFlags srcAccessMask, VkAccessFlags dstAccessMask,
-	VkImageLayout oldLayout, VkImageLayout newLayout)
-{
-	VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
-	barrier.srcAccessMask = srcAccessMask;
-	barrier.dstAccessMask = dstAccessMask;
-	barrier.oldLayout = oldLayout;
-	barrier.newLayout = newLayout;
-	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrier.image = pImage;
-	barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT; // shorcut as we only have color at the moment
-	barrier.subresourceRange.baseMipLevel = 0;
-	barrier.subresourceRange.levelCount = 1;//VK_REMAINING_MIP_LEVELS;	// Seem android have bug with this constant
-	barrier.subresourceRange.baseArrayLayer = 0;
-	barrier.subresourceRange.layerCount = 1;//VK_REMAINING_ARRAY_LAYERS;
-
-	return barrier;
-}
-
-VkBufferMemoryBarrier bufferBarrier(VkBuffer pBuffer, VkAccessFlags pSrcAccessMask, VkAccessFlags pDstAccessMask)
-{
-	VkBufferMemoryBarrier barrier = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
-	barrier.srcAccessMask = pSrcAccessMask;
-	barrier.dstAccessMask = pDstAccessMask;
-	// TODO : check GraphicsQueueIndex == TransfertQueueIndex
-	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;;
-	barrier.buffer = pBuffer;
-	barrier.offset = 0;
-	barrier.size = VK_WHOLE_SIZE;
-
-	return barrier;
-}
-
 // You should ONLY USE THIS FOR DEBUGGING - this is not something that should ever ship in real code, this will flushand invalidate all cachesand stall everything, it is a tool not to be used lightly!
 // That said, it can be really handy if you think you have a race condition in your appand you just want to serialize everything so you can debug it.
 // Note that this does not take care of image layouts - if you're debugging you can set the layout of all your images to GENERAL to overcome this, but again - do not do this in release code!
@@ -665,8 +597,7 @@ void createBuffer(Buffer& result, VulkanDevice& pVulkanDevice, size_t pSize, VkB
 	// Here we do Persistent mapping (only if flag HOST_VISIBLE is present)
 	// https://gpuopen-librariesandsdks.github.io/VulkanMemoryAllocator/html/memory_mapping.html
 	// note: some AMD device have special chunk of memory with DEVICE_LOCAL + HOST_VISIBLE flags
-	if
-		(pProperties & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
+	if (pProperties & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
 	{
 		VK_CHECK(vkMapMemory(pVulkanDevice.mLogicalDevice, memory, 0ull, VK_WHOLE_SIZE, 0ull, &data));
 	}
@@ -745,6 +676,7 @@ void createImage(Image& result, VulkanDevice pDevice, VkFormat pFormat, uint32_t
 }
 
 // Copy pHostData to the pSrc.data stage buffer into pDst using vkCmdCopyBuffer
+/*
 void uploadBufferToImage(VkDevice pDevice, VkCommandPool pCommandPool, VkCommandBuffer pCommandBuffer, VkQueue pCopyQueue, const Buffer& pSrc, Image& pDst, bool pDeleteImageData = true)
 {
 #pragma message("TODO : robust way to identify persistent map or not")
@@ -752,8 +684,7 @@ void uploadBufferToImage(VkDevice pDevice, VkCommandPool pCommandPool, VkCommand
 	uint32_t lImageDataSize = pDst.width * pDst.height * 4;
 	assert(lImageDataSize <= pSrc.mSize);
 	// pDst.data is a persistent mapped buffer
-	if
-		(pSrc.mMappedData)
+	if (pSrc.mMappedData)
 	{
 		// At the moment we conisder the data is already map in VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
 		memcpy(pSrc.mMappedData, pDst.imageData, lImageDataSize);
@@ -794,15 +725,15 @@ void uploadBufferToImage(VkDevice pDevice, VkCommandPool pCommandPool, VkCommand
 	// In our actual case we are always in VK_IMAGE_LAYOUT_UNDEFINED cause we jsut upload it one time and never touch it
 	// Later we should store the layout and create a different barrier.
 	// for example if we wan't to update the image, it will be probably in a VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL layout
-	VkImageMemoryBarrier lImageBarrier = imageBarrier(pDst.image,	0, VK_ACCESS_TRANSFER_WRITE_BIT,
-																	VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+	VkImageMemoryBarrier lImageBarrier = vkh::imageBarrier(pDst.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+																		0, VK_ACCESS_TRANSFER_WRITE_BIT);
 	vkCmdPipelineBarrier(pCommandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, NULL, 0, NULL, 1, &lImageBarrier);
 
 	vkCmdCopyBufferToImage(pCommandBuffer, pSrc.mBuffer, pDst.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &regions);
 
-	lImageBarrier = imageBarrier(pDst.image, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+	lImageBarrier = vkh::imageBarrier(pDst.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
 #pragma message("TODO : manage texture access in vertex pipeline")
-	vkCmdPipelineBarrier(pCommandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, /*VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |*/ VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, NULL, 0, NULL, 1, &lImageBarrier);
+	vkCmdPipelineBarrier(pCommandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT,  VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, NULL, 0, NULL, 1, &lImageBarrier);
 
 	VK_CHECK(vkEndCommandBuffer(pCommandBuffer));
 
@@ -818,16 +749,17 @@ void uploadBufferToImage(VkDevice pDevice, VkCommandPool pCommandPool, VkCommand
 	VK_CHECK(vkDeviceWaitIdle(pDevice));
 
 }
+*/
 
 // Copy pHostData to the pSrc.data stage buffer into pDst using vkCmdCopyBuffer
+/*
 void uploadBuffer(VkDevice pDevice, VkCommandPool pCommandPool, VkCommandBuffer pCommandBuffer, VkQueue pCopyQueue, const Buffer& pSrc, const Buffer& pDst, const void* pHostData, size_t pHostDataSize)
 {
 #pragma message("TODO : robust way to identify persistent map or not")
 	// pDst.data is a persistent mapped buffer
-	if
-		(pSrc.mMappedData)
+	if (pSrc.mMappedData)
 	{
-		// At the moment we conisder the data is already map in VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+		// At the moment we consider the data is already map in VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
 		memcpy(pSrc.mMappedData, pHostData, pHostDataSize);
 	}
 	else
@@ -849,7 +781,7 @@ void uploadBuffer(VkDevice pDevice, VkCommandPool pCommandPool, VkCommandBuffer 
 	VkBufferCopy regions = { 0, 0, VkDeviceSize(pHostDataSize) };
 	vkCmdCopyBuffer(pCommandBuffer, pSrc.mBuffer, pDst.mBuffer, 1, &regions);
 
-	VkBufferMemoryBarrier copyBufferBarrier = bufferBarrier(pDst.mBuffer, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT);
+	VkBufferMemoryBarrier copyBufferBarrier = vkh::bufferBarrier(pDst.mBuffer, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT);
 	vkCmdPipelineBarrier(pCommandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 1, &copyBufferBarrier, 0, nullptr);
 
 	VK_CHECK(vkEndCommandBuffer(pCommandBuffer));
@@ -865,6 +797,7 @@ void uploadBuffer(VkDevice pDevice, VkCommandPool pCommandPool, VkCommandBuffer 
 #pragma message ("WARNING hard lock to remove")
 	VK_CHECK(vkDeviceWaitIdle(pDevice));
 }
+*/
 
 void destroyBuffer(VkDevice pDevice, const Buffer& pBuffer)
 {
@@ -912,7 +845,7 @@ bool loadImage(VulkanDevice pDevice, Image& pImage, const char* pFilename)
 }
 
 // Refactor
-void mainLoop()
+int main(int argc, const char* argv[])
 {
 	VK_CHECK(volkInitialize());
 
@@ -924,7 +857,7 @@ void mainLoop()
 
 
 	VulkanInstance* lVulkanInstance = new VulkanInstance;
-	lVulkanInstance->createInstance();
+	lVulkanInstance->createInstance(VK_API_VERSION_1_3, true);
 	lVulkanInstance->enumeratePhysicalDevices();
 	VkPhysicalDevice lPhysicalDevice = lVulkanInstance->pickPhysicalDevice(VK_QUEUE_GRAPHICS_BIT /*| VK_QUEUE_TRANSFER_BIT*/);
 
@@ -948,9 +881,12 @@ void mainLoop()
 		lWindow->present();
 	}
 
+	return 0;
 }
 
+
 // Entry point
+#if 0
 int main(int argc, const char* argv[])
 {
 	mainLoop();
@@ -1020,7 +956,7 @@ int main(int argc, const char* argv[])
 	Mesh lMesh;
 	//loadTriangleMesh(lMesh);
 	//loadQuadMesh(lMesh);
- 	bool lResult = loadMesh(lMesh, R"path(E:\Data\obj\bicycle.obj)path", true);	
+ 	bool lResult = loadMesh(lMesh, R"(i:\Data\obj\bicycle.obj)", true);	
 	//bool lResult = loadMesh(lMesh, R"path(F:\Data\Models\stanford\kitten.obj)path");	
 	//bool lResult = loadMesh(lMesh, R"path(F:\Data\Models\stanford\debug.obj)path");
 	//assert(lResult);
@@ -1564,6 +1500,7 @@ int main(int argc, const char* argv[])
 
 	glfwDestroyWindow(lWindow);
 	glfwTerminate();
-	return 0;
-}
 
+
+}
+#endif

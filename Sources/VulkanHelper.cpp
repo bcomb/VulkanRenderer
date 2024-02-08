@@ -6,6 +6,232 @@
 namespace vkh
 {
 /******************************************************************************/
+VkImageSubresourceRange imageSubresourceRange(VkImageAspectFlags aspectMask)
+{
+	VkImageSubresourceRange subImage = {};
+	subImage.aspectMask = aspectMask;
+	subImage.baseMipLevel = 0;
+	subImage.levelCount = VK_REMAINING_MIP_LEVELS;
+	subImage.baseArrayLayer = 0;
+	subImage.layerCount = VK_REMAINING_ARRAY_LAYERS;
+	return subImage;
+}
+
+/******************************************************************************/
+VkImageMemoryBarrier imageBarrier_1_0(VkImage pImage,
+	VkImageLayout oldLayout, VkImageLayout newLayout,
+	VkAccessFlags srcAccessMask, VkAccessFlags dstAccessMask)
+{
+	VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+	barrier.srcAccessMask = srcAccessMask;
+	barrier.dstAccessMask = dstAccessMask;
+	barrier.oldLayout = oldLayout;
+	barrier.newLayout = newLayout;
+	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.image = pImage;
+	barrier.subresourceRange.aspectMask = (newLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL) ? VK_IMAGE_ASPECT_DEPTH_BIT  : VK_IMAGE_ASPECT_COLOR_BIT;
+	barrier.subresourceRange.baseMipLevel = 0;
+	barrier.subresourceRange.levelCount = 1;//VK_REMAINING_MIP_LEVELS;	// Seem android have bug with this constant
+	barrier.subresourceRange.baseArrayLayer = 0;
+	barrier.subresourceRange.layerCount = 1;//VK_REMAINING_ARRAY_LAYERS;
+
+	return barrier;
+}
+
+/******************************************************************************/
+VkBufferMemoryBarrier bufferBarrier_1_0(VkBuffer pBuffer, VkAccessFlags pSrcAccessMask, VkAccessFlags pDstAccessMask)
+{
+	VkBufferMemoryBarrier barrier = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
+	barrier.srcAccessMask = pSrcAccessMask;
+	barrier.dstAccessMask = pDstAccessMask;
+	// TODO : check GraphicsQueueIndex == TransfertQueueIndex
+	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;;
+	barrier.buffer = pBuffer;
+	barrier.offset = 0;
+	barrier.size = VK_WHOLE_SIZE;
+	return barrier;
+}
+
+/******************************************************************************/
+void transitionImage(VkCommandBuffer cmd, VkImage image, VkImageLayout currentLayout, VkImageLayout newLayout)
+{
+	VkImageMemoryBarrier2 imageBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+	imageBarrier.pNext = nullptr;
+
+	imageBarrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+	imageBarrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+	imageBarrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+	imageBarrier.dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT;
+
+	imageBarrier.oldLayout = currentLayout;
+	imageBarrier.newLayout = newLayout;
+
+	VkImageAspectFlags aspectMask = (newLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+	imageBarrier.subresourceRange = imageSubresourceRange(aspectMask);
+	imageBarrier.image = image;
+
+	VkDependencyInfo depInfo = {};
+	depInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+	depInfo.pNext = nullptr;
+
+	depInfo.imageMemoryBarrierCount = 1;
+	depInfo.pImageMemoryBarriers = &imageBarrier;
+
+	vkCmdPipelineBarrier2(cmd, &depInfo);
+}
+
+
+/******************************************************************************/
+VkSemaphoreSubmitInfo semaphoreSubmitInfo(VkPipelineStageFlags2 stageMask, VkSemaphore semaphore)
+{
+	VkSemaphoreSubmitInfo submitInfo{};
+	submitInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+	submitInfo.pNext = nullptr;
+	submitInfo.semaphore = semaphore;
+	submitInfo.stageMask = stageMask;
+	submitInfo.deviceIndex = 0;
+	submitInfo.value = 1;
+
+	return submitInfo;
+}
+
+/******************************************************************************/
+VkCommandBufferSubmitInfo commandBufferSubmitInfo(VkCommandBuffer cmd)
+{
+	VkCommandBufferSubmitInfo info{};
+	info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+	info.pNext = nullptr;
+	info.commandBuffer = cmd;
+	info.deviceMask = 0;
+
+	return info;
+}
+
+/******************************************************************************/
+VkSubmitInfo2 submitInfo(VkCommandBufferSubmitInfo* cmd, VkSemaphoreSubmitInfo* signalSemaphoreInfo, VkSemaphoreSubmitInfo* waitSemaphoreInfo)
+{
+	VkSubmitInfo2 info = {};
+	info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+	info.pNext = nullptr;
+
+	info.waitSemaphoreInfoCount = waitSemaphoreInfo == nullptr ? 0 : 1;
+	info.pWaitSemaphoreInfos = waitSemaphoreInfo;
+
+	info.signalSemaphoreInfoCount = signalSemaphoreInfo == nullptr ? 0 : 1;
+	info.pSignalSemaphoreInfos = signalSemaphoreInfo;
+
+	info.commandBufferInfoCount = 1;
+	info.pCommandBufferInfos = cmd;
+
+	return info;
+}
+
+/******************************************************************************/
+/******************************************************************************/
+/******************************************************************************/
+VkCommandPoolCreateInfo commandPoolCreateInfo(uint32_t queueFamilyIndex, VkCommandPoolCreateFlags flags /*= 0*/)
+{
+	VkCommandPoolCreateInfo info = {};
+	info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+	info.pNext = nullptr;
+	info.flags = flags;
+	info.queueFamilyIndex = queueFamilyIndex;
+	return info;
+}
+
+/******************************************************************************/
+VkCommandBufferAllocateInfo commandBufferAllocateInfo(VkCommandPool pool, uint32_t count /*= 1*/, VkCommandBufferLevel level /*= VK_COMMAND_BUFFER_LEVEL_PRIMARY*/)
+{
+	VkCommandBufferAllocateInfo info = {};
+	info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	info.pNext = nullptr;
+	info.commandPool = pool;
+	info.commandBufferCount = count;
+	info.level = level;
+	return info;
+}
+
+/******************************************************************************/
+VkCommandBufferBeginInfo commandBufferBeginInfo(VkCommandBufferUsageFlags flags /*= 0*/)
+{
+	VkCommandBufferBeginInfo info = {};
+	info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	info.pNext = nullptr;
+	info.pInheritanceInfo = nullptr;
+	info.flags = flags;
+	return info;
+}
+
+/******************************************************************************/
+VkFramebufferCreateInfo framebufferCreateInfo(VkRenderPass renderPass, VkExtent2D extent)
+{
+	VkFramebufferCreateInfo info = {};
+	info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+	info.pNext = nullptr;
+	info.renderPass = renderPass;
+	info.attachmentCount = 1;
+	info.width = extent.width;
+	info.height = extent.height;
+	info.layers = 1;
+	return info;
+}
+
+/******************************************************************************/
+VkFenceCreateInfo fenceCreateInfo(VkFenceCreateFlags flags /*= 0*/)
+{
+	VkFenceCreateInfo info = {};
+	info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+	info.pNext = nullptr;
+	info.flags = flags;
+	return info;
+}
+
+/******************************************************************************/
+VkSemaphoreCreateInfo semaphoreCreateInfo(VkSemaphoreCreateFlags flags /*= 0*/)
+{
+	VkSemaphoreCreateInfo info = {};
+	info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+	info.pNext = nullptr;
+	info.flags = flags;
+	return info;
+}
+
+/******************************************************************************/
+VkPresentInfoKHR presentInfo()
+{
+	VkPresentInfoKHR info = {};
+	info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+	info.pNext = nullptr;
+	info.swapchainCount = 0;
+	info.pSwapchains = nullptr;
+	info.pWaitSemaphores = nullptr;
+	info.waitSemaphoreCount = 0;
+	info.pImageIndices = nullptr;
+	return info;
+}
+
+/******************************************************************************/
+VkRenderPassBeginInfo renderpassBeginInfo(VkRenderPass renderPass, VkExtent2D windowExtent, VkFramebuffer framebuffer)
+{
+	VkRenderPassBeginInfo info = {};
+	info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+	info.pNext = nullptr;
+	info.renderPass = renderPass;
+	info.renderArea.offset.x = 0;
+	info.renderArea.offset.y = 0;
+	info.renderArea.extent = windowExtent;
+	info.clearValueCount = 1;
+	info.pClearValues = nullptr;
+	info.framebuffer = framebuffer;
+	return info;
+}
+
+
+/******************************************************************************/
+/******************************************************************************/
+/******************************************************************************/
 VkSemaphore createSemaphore(VkDevice pDevice)
 {
 	VkSemaphoreCreateInfo lSemaphoreCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
@@ -16,10 +242,10 @@ VkSemaphore createSemaphore(VkDevice pDevice)
 }
 
 /******************************************************************************/
-VkFence createFence(VkDevice pDevice)
+VkFence createFence(VkDevice pDevice, VkFenceCreateFlags flags)
 {
 	VkFenceCreateInfo createInfo = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
-	createInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+	createInfo.flags = flags;
 
 	VkFence fence;
 	vkCreateFence(pDevice, &createInfo, nullptr, &fence);
@@ -27,11 +253,9 @@ VkFence createFence(VkDevice pDevice)
 }
 
 /******************************************************************************/
-VkCommandPool createCommandPool(VkDevice pDevice, uint32_t pFamilyIndex)
+VkCommandPool createCommandPool(VkDevice pDevice, uint32_t pFamilyIndex, VkCommandPoolCreateFlags pFlags = 0)
 {
-	VkCommandPoolCreateInfo lCreateInfo = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
-	lCreateInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-	lCreateInfo.queueFamilyIndex = pFamilyIndex;
+	VkCommandPoolCreateInfo lCreateInfo = commandPoolCreateInfo(pFamilyIndex, pFlags);
 	VkCommandPool lCommandPool;
 	VK_CHECK(vkCreateCommandPool(pDevice, &lCreateInfo, nullptr, &lCommandPool));
 	return lCommandPool;
@@ -54,9 +278,9 @@ VkImageView createImageView(VkDevice pDevice, VkImage pImage, VkFormat pFormat)
 	lImageViewCreateInfo.subresourceRange.levelCount = 1;
 	lImageViewCreateInfo.subresourceRange.baseArrayLayer = 0;
 	lImageViewCreateInfo.subresourceRange.layerCount = 1;
-	VkImageView imageView;
-	VK_CHECK(vkCreateImageView(pDevice, &lImageViewCreateInfo, nullptr, &imageView));
-	return imageView;
+	VkImageView lImageView;
+	VK_CHECK(vkCreateImageView(pDevice, &lImageViewCreateInfo, nullptr, &lImageView));
+	return lImageView;
 }
 
 /******************************************************************************/

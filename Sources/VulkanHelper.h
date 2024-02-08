@@ -2,19 +2,40 @@
 
 #include <vector>
 
-
 // Forward declaration
 struct VulkanSwapchain;
 
 // Helper functions
 namespace vkh
 {
+	// Some initializers helpers
+	VkCommandPoolCreateInfo commandPoolCreateInfo(uint32_t queueFamilyIndex, VkCommandPoolCreateFlags flags = 0);
+	VkCommandBufferAllocateInfo commandBufferAllocateInfo(VkCommandPool pool, uint32_t count = 1, VkCommandBufferLevel level = VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+	VkCommandBufferBeginInfo commandBufferBeginInfo(VkCommandBufferUsageFlags flags = 0);
+	VkFramebufferCreateInfo framebufferCreateInfo(VkRenderPass renderPass, VkExtent2D extent);
+	VkFenceCreateInfo fenceCreateInfo(VkFenceCreateFlags flags = 0);
+	VkSemaphoreCreateInfo semaphoreCreateInfo(VkSemaphoreCreateFlags flags = 0);
+	VkPresentInfoKHR presentInfo();
+	VkSemaphoreSubmitInfo semaphoreSubmitInfo(VkPipelineStageFlags2 stageMask, VkSemaphore semaphore);
+	VkCommandBufferSubmitInfo commandBufferSubmitInfo(VkCommandBuffer cmd);
+	VkSubmitInfo2 submitInfo(VkCommandBufferSubmitInfo* cmd, VkSemaphoreSubmitInfo* signalSemaphoreInfo, VkSemaphoreSubmitInfo* waitSemaphoreInfo);
+
+	// Some create helpers
 	VkSemaphore createSemaphore(VkDevice pDevice);
-	VkFence createFence(VkDevice pDevice);
-	VkCommandPool createCommandPool(VkDevice pDevice, uint32_t pFamilyIndex);
+	VkFence createFence(VkDevice pDevice, uint32_t pFlags = VK_FENCE_CREATE_SIGNALED_BIT);
+	VkCommandPool createCommandPool(VkDevice pDevice, uint32_t pFamilyIndex, VkCommandPoolCreateFlags pFlags);
 	VkImageView createImageView(VkDevice pDevice, VkImage pImage, VkFormat pFormat);
 	VkRenderPass createRenderPass(VkDevice pDevice, VkFormat pFormat);
 	VkFramebuffer createFramebuffer(VkDevice pDevice, VkRenderPass pRenderPass, VkImageView* imageViews, uint32_t imageViewCount, uint32_t pWidth, uint32_t pHeight);
 	VkSampler createTextureSampler(VkDevice pDevice);
-	std::vector<VkFramebuffer> createSwapchainFramebuffer(VkDevice pDevice, VkRenderPass pRenderPass, const VulkanSwapchain& pSwapchain);
+	std::vector<VkFramebuffer> createSwapchainFramebuffer(VkDevice pDevice, VkRenderPass pRenderPass, const VulkanSwapchain& pSwapchain);	
+
+
+	// Image helpers
+	VkImageSubresourceRange imageSubresourceRange(VkImageAspectFlags aspectMask);
+
+	// Barrier helpers
+	// VK_KHR_synchronization2 : https://github.com/KhronosGroup/Vulkan-Docs/wiki/Synchronization-Examples
+	void transitionImage(VkCommandBuffer cmd, VkImage pImage, VkImageLayout oldLayout, VkImageLayout newLayout);
+    //VkBufferMemoryBarrier bufferBarrier(VkBuffer pBuffer, VkAccessFlags pSrcAccessMask, VkAccessFlags pDstAccessMask);
 }

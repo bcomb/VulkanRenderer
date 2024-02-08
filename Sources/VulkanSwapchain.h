@@ -17,14 +17,22 @@ struct VulkanSwapchain
     void destroySwapchain();
 
     inline uint32_t imageCount() const { return (uint32_t)mImages.size();  }
-    VkResult acquireNextImage(VkSemaphore pAcquireSemaphore, uint32_t* pImageIndex);
-    VkResult queuePresent(VkQueue pQueue, uint32_t pImageIndex, VkSemaphore pReleaseSemaphore = VK_NULL_HANDLE);
+
+    // Acquire the next image in the swapchain
+    VkResult acquireNextImage(VkSemaphore pAcquireSemaphore);
+
+    // Present the current image to the queue (the last one acquired)
+    VkResult queuePresent(VkQueue pQueue, VkSemaphore pWaitSemaphore = VK_NULL_HANDLE);
+
+    // Get the current image
+    inline VkImage getImage() { return mImages[mSwapchainImageIndex]; }
 
     void cleanUp();
 
+    struct VulkanInstance* mContext = nullptr;
+    struct VulkanDevice* mDevice = nullptr;
 
-    struct VulkanInstance* mContext;
-    struct VulkanDevice* mDevice;
+    uint32_t mSwapchainImageIndex = 0;  // The last requested image index
 
     VkSurfaceKHR mSurface;
     VkSurfaceCapabilitiesKHR mSurfaceCapabilities;

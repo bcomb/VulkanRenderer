@@ -138,7 +138,7 @@ void VulkanSwapchain::createSwapchain(uint32_t pWidth, uint32_t pHeight, uint32_
 	lSwapchainInfo.imageExtent.width = pWidth;
 	lSwapchainInfo.imageExtent.height = pHeight;
 	lSwapchainInfo.imageArrayLayers = 1;
-	lSwapchainInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; // | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+	lSwapchainInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 	// we don't share swapchain image across multiple queue
 	lSwapchainInfo.queueFamilyIndexCount = 0;
 	lSwapchainInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE; 
@@ -156,8 +156,7 @@ void VulkanSwapchain::createSwapchain(uint32_t pWidth, uint32_t pHeight, uint32_
 	VK_CHECK(vkCreateSwapchainKHR(mDevice->mLogicalDevice, &lSwapchainInfo, nullptr, &mSwapchain));
 
 	// Destroy previous ressources
-	if
-		(lOldSwapchain)
+    if (lOldSwapchain)
 	{
 		for (auto&& lImageView : mImageViews)
 			vkDestroyImageView(mDevice->mLogicalDevice, lImageView, NULL);
@@ -190,22 +189,22 @@ void VulkanSwapchain::resizeSwapchain(uint32_t pWidth, uint32_t pHeight, uint32_
 }
 
 /******************************************************************************/
-VkResult VulkanSwapchain::acquireNextImage(VkSemaphore pAcquireSemaphore, uint32_t* pImageIndex)
+VkResult VulkanSwapchain::acquireNextImage(VkSemaphore pAcquireSemaphore)
 {
-	VkResult lResult = vkAcquireNextImageKHR(mDevice->mLogicalDevice, mSwapchain, ~0ull, pAcquireSemaphore, VK_NULL_HANDLE, pImageIndex);
+	VkResult lResult = vkAcquireNextImageKHR(mDevice->mLogicalDevice, mSwapchain, ~0ull, pAcquireSemaphore, VK_NULL_HANDLE, &mSwapchainImageIndex);
 	VK_CHECK(lResult);
 	return lResult;
 }
 
 /******************************************************************************/
-VkResult VulkanSwapchain::queuePresent(VkQueue pQueue, uint32_t pImageIndex, VkSemaphore pReleaseSemaphore)
+VkResult VulkanSwapchain::queuePresent(VkQueue pQueue, VkSemaphore pWaitSemaphore)
 {
-	VkPresentInfoKHR lPresentInfo = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
-	lPresentInfo.waitSemaphoreCount = pReleaseSemaphore != VK_NULL_HANDLE;
-	lPresentInfo.pWaitSemaphores = pReleaseSemaphore != VK_NULL_HANDLE  ? &pReleaseSemaphore : NULL;
+	VkPresentInfoKHR lPresentInfo = vkh::presentInfo();
+	lPresentInfo.waitSemaphoreCount = pWaitSemaphore != VK_NULL_HANDLE;
+	lPresentInfo.pWaitSemaphores = pWaitSemaphore != VK_NULL_HANDLE  ? &pWaitSemaphore : nullptr;
 	lPresentInfo.swapchainCount = 1;		// one per window?
 	lPresentInfo.pSwapchains = &mSwapchain;
-	lPresentInfo.pImageIndices = &pImageIndex;
+	lPresentInfo.pImageIndices = &mSwapchainImageIndex;
 	
 	VkResult lResult = vkQueuePresentKHR(pQueue, &lPresentInfo);
 	VK_CHECK(lResult);
@@ -215,15 +214,15 @@ VkResult VulkanSwapchain::queuePresent(VkQueue pQueue, uint32_t pImageIndex, VkS
 /******************************************************************************/
 void VulkanSwapchain::cleanUp()
 {
-	if
-		(mSwapchain)
+    if (mSwapchain)
 	{
 		for (auto&& lImageView : mImageViews)
 			vkDestroyImageView(mDevice->mLogicalDevice, lImageView, NULL);
+
+		mImageViews.clear();
 	}
 
-	if
-		(mSurface)
+    if (mSurface)
 	{
 		vkDestroySwapchainKHR(mDevice->mLogicalDevice, mSwapchain, NULL);
 		

@@ -34,12 +34,8 @@ void VulkanDevice::createLogicalDevice(VkQueueFlags pRequestedQueueTypes)
 {
 #pragma message ("TODO : Manage features/extension")
 
-	VkPhysicalDeviceFeatures lRequiredDeviceFeatures = {};
-
-
 	// Get queue family indices for the requested queue family types
 	// Note that the indices may overlap depending on the implementation
-
 	const float defaultQueuePriority(0.0f);
 	std::vector<VkDeviceQueueCreateInfo> lQueueCreateInfos;
 	// Graphics queue
@@ -96,7 +92,6 @@ void VulkanDevice::createLogicalDevice(VkQueueFlags pRequestedQueueTypes)
 	}
 
 
-
 	VkDeviceCreateInfo lDeviceCreateInfo = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
 	lDeviceCreateInfo.pQueueCreateInfos = lQueueCreateInfos.data();
 	lDeviceCreateInfo.queueCreateInfoCount = (uint32_t)lQueueCreateInfos.size();
@@ -109,7 +104,35 @@ void VulkanDevice::createLogicalDevice(VkQueueFlags pRequestedQueueTypes)
 	lDeviceCreateInfo.enabledExtensionCount = ARRAY_COUNT(lDeviceExtensions);
 	lDeviceCreateInfo.ppEnabledExtensionNames = lDeviceExtensions;
 
+	// Query available features
+	VkPhysicalDeviceVulkan11Features features11 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
+	VkPhysicalDeviceVulkan12Features features12 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+	VkPhysicalDeviceVulkan13Features features13 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
+	features13.pNext = &features12;
+	features12.pNext = &features11;
+	VkPhysicalDeviceFeatures2 physical_features2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+	physical_features2.pNext = &features13;
+	vkGetPhysicalDeviceFeatures2(mPhysicalDevice, &physical_features2);
 
+	// Enable features
+
+	// vulkan 1.1 features
+	VkPhysicalDeviceVulkan12Features lRequestFeatures11 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
+	
+	// vulkan 1.2 features
+	VkPhysicalDeviceVulkan12Features lRequestFeatures12 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+	lRequestFeatures12.bufferDeviceAddress = true;
+	lRequestFeatures12.descriptorIndexing = true;
+
+	// vulkan 1.3 features
+	VkPhysicalDeviceVulkan13Features lRequestFeatures13 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
+	lRequestFeatures13.dynamicRendering = true;
+	lRequestFeatures13.synchronization2 = true;
+
+	lRequestFeatures13.pNext = &lRequestFeatures12;
+	lRequestFeatures12.pNext = &lRequestFeatures11;
+	lDeviceCreateInfo.pNext = &lRequestFeatures13;
+	
 
 	// Previous implementations of Vulkan made a distinction between instance and device specific validation layers,
 	// but this is no longer the case. That means that the enabledLayerCountand ppEnabledLayerNames fields 
