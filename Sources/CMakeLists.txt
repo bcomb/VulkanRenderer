@@ -33,6 +33,12 @@ target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/.
 target_link_libraries (${PROJECT_NAME} PRIVATE glfw volk meshoptimizer)
 #set_target_properties(${PROJECT_NAME} PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_HOME_DIRECTORY}/bin")
 
+# For HotReload
+if(WIN32)
+    set_target_properties(${PROJECT_NAME} PROPERTIES LINK_FLAGS "/EDITANDCONTINUE /INCREMENTAL")
+    set_target_properties(${PROJECT_NAME} PROPERTIES COMPILE_FLAGS "/ZI")
+endif()
+
 foreach(fileItem ${glsl_sources})
     add_custom_command( OUTPUT ${fileItem}.spv
                         POST_BUILD                        
