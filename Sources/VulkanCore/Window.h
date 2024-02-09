@@ -53,8 +53,9 @@ public:
     // Native handle
     void* winId() const;
 
+    virtual void render();
 
-    void render();
+    inline bool shouldClose() { return mShouldClose; }
 
 protected:
     // GLFW callback
