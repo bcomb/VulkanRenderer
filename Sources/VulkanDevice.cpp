@@ -112,6 +112,10 @@ void VulkanDevice::createLogicalDevice(VkQueueFlags pRequestedQueueTypes)
 	features12.pNext = &features11;
 	VkPhysicalDeviceFeatures2 physical_features2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
 	physical_features2.pNext = &features13;
+
+	// Try to get rid of the Validation error at Swapchain creation VUID-VkSamplerCreateInfo-anisotropyEnable-01070 
+	// Error: [VUID - VkSamplerCreateInfo - anisotropyEnable - 01070] | MessageID = 0x56f192bc | vkCreateSampler() : pCreateInfo->anisotropyEnable is VK_TRUE but the samplerAnisotropy feature was not enabled.The Vulkan spec states : If the samplerAnisotropy feature is not enabled, anisotropyEnable must be VK_FALSE(https ://vulkan.lunarg.com/doc/view/1.3.275.0/windows/1.3-extensions/vkspec.html#VUID-VkSamplerCreateInfo-anisotropyEnable-01070)
+	physical_features2.features.samplerAnisotropy = true;
 	vkGetPhysicalDeviceFeatures2(mPhysicalDevice, &physical_features2);
 
 	// Enable features
