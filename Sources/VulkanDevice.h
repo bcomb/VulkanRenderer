@@ -1,5 +1,6 @@
 #pragma once
 #include "vk_common.h"
+#include "vk_mem_alloc.h"
 
 #include <vector>
 
@@ -10,7 +11,7 @@ struct VulkanDevice
     operator VkDevice() const { return mLogicalDevice; }
 
     // Create the logical device
-    void createLogicalDevice(VkQueueFlags pRequestedQueueTypes);
+    void createLogicalDevice(VkQueueFlags pRequestedQueueTypes, VkInstance pVkInstance);
 
     // Convenient function to get device queue
     // LogicalDevice must be created
@@ -41,4 +42,5 @@ struct VulkanDevice
     VkPhysicalDeviceFeatures mEnabledDeviceFeatures;
     VkPhysicalDeviceMemoryProperties mPhysicalDeviceMemoryProperties;
 
+    VmaAllocator mAllocator;
 };

@@ -11,7 +11,7 @@ const uint32_t FRAME_BUFFER_COUNT = 2;  // Double buffer
 struct VulkanContext
 {
     VulkanInstance* mInstance;
-    VulkanDevice* mDevice;
+    VulkanDevice* mDevice;    
 };
 
 struct WindowAttributes
@@ -37,6 +37,8 @@ struct FrameData
     CommandBuffer mCommandBuffer;       // Command buffer for rendering the frame
     VkSemaphore mSwapchainSemaphore;    // Wait the swapchain image to be available
     VkSemaphore mRenderSemaphore;       // Control presenting image
+
+    
 };
 
 class Window
@@ -66,7 +68,7 @@ protected:
     WindowAttributes mAttribs; // What we obtain
 
     struct GLFWwindow* mGLFWwindow = nullptr;
-    VulkanContext mVulkanContext;
+    VulkanContext mVulkanContext;    
 
     VulkanSwapchain* mVulkanSwapchain = nullptr;
     VkRenderPass mRenderPass = VK_NULL_HANDLE;

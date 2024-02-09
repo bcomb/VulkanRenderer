@@ -1,6 +1,12 @@
 #include "VulkanDevice.h"
 
+#define VMA_IMPLEMENTATION
+#define VMA_STATIC_VULKAN_FUNCTIONS 1
+#define VMA_DYNAMIC_VULKAN_FUNCTIONS 0
+#include "vk_mem_alloc.h"
+
 #include <assert.h>
+
 
 /******************************************************************************/
 VulkanDevice::VulkanDevice(VkPhysicalDevice pPhysicalDevice)
@@ -30,7 +36,7 @@ VulkanDevice::VulkanDevice(VkPhysicalDevice pPhysicalDevice)
 }
 
 /******************************************************************************/
-void VulkanDevice::createLogicalDevice(VkQueueFlags pRequestedQueueTypes)
+void VulkanDevice::createLogicalDevice(VkQueueFlags pRequestedQueueTypes, VkInstance pVkInstance)
 {
 #pragma message ("TODO : Manage features/extension")
 
@@ -152,6 +158,13 @@ void VulkanDevice::createLogicalDevice(VkQueueFlags pRequestedQueueTypes)
 		else
 			mQueues[i] = VK_NULL_HANDLE;
 	}
+
+	VmaAllocatorCreateInfo allocatorInfo = {};
+	allocatorInfo.physicalDevice = mPhysicalDevice;
+	allocatorInfo.device = mLogicalDevice;
+	allocatorInfo.instance = pVkInstance;
+	allocatorInfo.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+	vmaCreateAllocator(&allocatorInfo, &mAllocator);
 }
 
 /******************************************************************************/

@@ -704,14 +704,14 @@ int main(int argc, const char* argv[])
 	VulkanInstance* lVulkanInstance = new VulkanInstance;
 	lVulkanInstance->createInstance(VK_API_VERSION_1_3, true);
 	lVulkanInstance->enumeratePhysicalDevices();
-	VkPhysicalDevice lPhysicalDevice = lVulkanInstance->pickPhysicalDevice(VK_QUEUE_GRAPHICS_BIT /*| VK_QUEUE_TRANSFER_BIT*/);
+	VkPhysicalDevice lPhysicalDevice = lVulkanInstance->pickPhysicalDevice(VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT);
 
 #ifdef _DEBUG
 	registerDebugMessenger(lVulkanInstance->mVulkanInstance);
 #endif
 
 	VulkanDevice* lDevice = new VulkanDevice(lPhysicalDevice);
-	lDevice->createLogicalDevice(VK_QUEUE_GRAPHICS_BIT /*| VK_QUEUE_TRANSFER_BIT*/); // For the moment use only one queue
+	lDevice->createLogicalDevice(VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT, lVulkanInstance->mVulkanInstance);
 
 	VulkanContext lContext = { lVulkanInstance, lDevice };
 
