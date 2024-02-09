@@ -95,7 +95,7 @@ void Window::onWindowClose()
 void Window::onWindowSize(uint32_t pWidth, uint32_t pHeight)
 {   
     // Probably necessary
-    //VK_CHECK(vkDeviceWaitIdle(lDevice));
+    VK_CHECK(vkDeviceWaitIdle(mVulkanContext.mDevice->mLogicalDevice));
 
     mRequestedAttribs.mWidth = pWidth;
     mRequestedAttribs.mHeight = pHeight;
@@ -109,12 +109,6 @@ void Window::onWindowSize(uint32_t pWidth, uint32_t pHeight)
 
 #pragma message("TODO : check what we obtain")
     mAttribs = mRequestedAttribs;
-}
-
-/******************************************************************************/
-void Window::beginFrame()
-{    
-    //mVulkanSwapchain->acquireNextImage(getCurrentFrame().mSwapchainSemaphore);
 }
 
 /******************************************************************************/
@@ -138,7 +132,7 @@ void Window::render()
     // Make the swapchain image ready for rendering
     vkh::transitionImage(lCommandBuffer, mVulkanSwapchain->getImage(), VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
 
-    float flash = fabs(sin(mCurrentFrame / 120.0f));
+    float flash = (float)fabs(sin(mCurrentFrame / 120.0f));
     VkClearColorValue lClearColor = { 0.3f, 0.3f, flash, 1.0f };
 
     VkImageSubresourceRange lClearRange = vkh::imageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
@@ -154,16 +148,18 @@ void Window::render()
     // we will signal the _renderSemaphore, to signal that rendering has finished
     VkCommandBufferSubmitInfo lCmdSubmitInfo = vkh::commandBufferSubmitInfo(lCommandBuffer);
 
-    // 
+
     VkSemaphoreSubmitInfo lWaitInfo = vkh::semaphoreSubmitInfo(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, lCurrentFrame.mSwapchainSemaphore);
     VkSemaphoreSubmitInfo lSignalInfo = vkh::semaphoreSubmitInfo(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, lCurrentFrame.mRenderSemaphore);
-
     VkSubmitInfo2 lSubmitInfo = vkh::submitInfo(&lCmdSubmitInfo, &lSignalInfo, &lWaitInfo);
 
     // Submit command buffer to the queue and execute it.
     // The command buffer fence will now block until the graphic commands finish execution
     VK_CHECK(vkQueueSubmit2(mVulkanContext.mDevice->getQueue(VulkanQueueType::Graphics), 1, &lSubmitInfo, lCurrentFrame.mCommandBuffer.mFence));
 
+    // Present the image (wait submit finished with the mRenderSemaphore)
+    mVulkanSwapchain->queuePresent(mVulkanContext.mDevice->getQueue(VulkanQueueType::Graphics), lCurrentFrame.mRenderSemaphore);
+    ++mCurrentFrame;
 
     /*
     //VkDevice lDevice = mVulkanContext.mDevice->mLogicalDevice;
@@ -222,12 +218,4 @@ void Window::render()
     */
 
    // Submit the command buffer to the graphics queue
-}
-
-/******************************************************************************/
-void Window::present()
-{
-    FrameData& lCurrentFrame = getCurrentFrame();
-    mVulkanSwapchain->queuePresent(mVulkanContext.mDevice->getQueue(VulkanQueueType::Graphics), lCurrentFrame.mRenderSemaphore);
-    ++mCurrentFrame;
 }

@@ -720,10 +720,8 @@ int main(int argc, const char* argv[])
 
 	while (1)
 	{
-		glfwPollEvents();
-		lWindow->beginFrame();
+		glfwPollEvents();		
 		lWindow->render();
-		lWindow->present();
 	}
 
 	return 0;

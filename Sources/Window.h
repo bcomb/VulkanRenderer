@@ -51,15 +51,8 @@ public:
     // Native handle
     void* winId() const;
 
-    /// <summary>
-    /// Acquire the next image of the swapchain to render in
-    /// </summary>
-    /// <returns>The swapchain image index</returns>
-    void beginFrame(); // acquire the next image of the swapchain
 
     void render();
-
-    void present(); // swap the image to the screen, increment current frame counter
 
 protected:
     // GLFW callback

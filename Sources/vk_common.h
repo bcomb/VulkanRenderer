@@ -5,16 +5,12 @@
 #define VK_CHECK(call_) do { VkResult result_ = call_;	assert(result_ == VK_SUCCESS); } while(0);
 #define ARRAY_COUNT(array_) (sizeof(array_) / sizeof(array_[0]))
 
-// Allocation on stack
-// Automatically destroyed when exit function
-#define STACK_ALLOC(TYPE_,COUNT_) (TYPE_*)_alloca(sizeof(TYPE_) * COUNT_)
-
 // Don't change order/count or report modification everywhere
 struct VulkanQueueType
 {
     enum Enum : uint8_t
     {
-        Graphics,        
+        Graphics,
         Compute,
         Transfert,
         Count
