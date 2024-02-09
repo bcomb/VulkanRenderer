@@ -27,11 +27,12 @@ file(GLOB glsl_sources "../Shaders/*.glsl")
 file(GLOB glsl_inc "../Shaders/*.h")
 source_group(Shaders FILES ${glsl_sources} ${glsl_inc})
 
-
 add_executable(${PROJECT_NAME} ${sources} ${glsl_sources})
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../ThirdParty/stb) # to access stb
+target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../ThirdParty/VulkanMemoryAllocator) # to access Vma
 target_link_libraries (${PROJECT_NAME} PRIVATE glfw volk meshoptimizer)
-#set_target_properties(${PROJECT_NAME} PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_HOME_DIRECTORY}/bin")
+set_target_properties(${PROJECT_NAME} PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_HOME_DIRECTORY}/bin")
+set_target_properties(${PROJECT_NAME} PROPERTIES DEBUG_POSTFIX ${CMAKE_DEBUG_POSTFIX})
 
 # For HotReload
 if(WIN32)
