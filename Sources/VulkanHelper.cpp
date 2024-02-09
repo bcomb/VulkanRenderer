@@ -115,15 +115,56 @@ VkSubmitInfo2 submitInfo(VkCommandBufferSubmitInfo* cmd, VkSemaphoreSubmitInfo* 
 	VkSubmitInfo2 info = {};
 	info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
 	info.pNext = nullptr;
-
 	info.waitSemaphoreInfoCount = waitSemaphoreInfo == nullptr ? 0 : 1;
 	info.pWaitSemaphoreInfos = waitSemaphoreInfo;
-
 	info.signalSemaphoreInfoCount = signalSemaphoreInfo == nullptr ? 0 : 1;
 	info.pSignalSemaphoreInfos = signalSemaphoreInfo;
-
 	info.commandBufferInfoCount = 1;
 	info.pCommandBufferInfos = cmd;
+	return info;
+}
+
+/******************************************************************************/
+VkImageCreateInfo imageCreateInfo(VkFormat format, VkImageUsageFlags usageFlags, VkExtent3D extent)
+{
+	VkImageCreateInfo info = {};
+	info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+	info.pNext = nullptr;
+
+	info.imageType = VK_IMAGE_TYPE_2D;
+
+	info.format = format;
+	info.extent = extent;
+
+	info.mipLevels = 1;
+	info.arrayLayers = 1;
+
+	//for MSAA. we will not be using it by default, so default it to 1 sample per pixel.
+	info.samples = VK_SAMPLE_COUNT_1_BIT;
+
+	//optimal tiling, which means the image is stored on the best gpu format
+	info.tiling = VK_IMAGE_TILING_OPTIMAL;			// VK_IMAGE_TILING_LINEAR is for CPU access as 2D Array linear data (for readback?)
+	info.usage = usageFlags;
+
+	return info;
+}
+
+/******************************************************************************/
+VkImageViewCreateInfo imageViewCreateInfo(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags)
+{
+	// build a image-view for the depth image to use for rendering
+	VkImageViewCreateInfo info = {};
+	info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+	info.pNext = nullptr;
+
+	info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+	info.image = image;
+	info.format = format;
+	info.subresourceRange.baseMipLevel = 0;
+	info.subresourceRange.levelCount = 1;
+	info.subresourceRange.baseArrayLayer = 0;
+	info.subresourceRange.layerCount = 1;
+	info.subresourceRange.aspectMask = aspectFlags;
 
 	return info;
 }
@@ -228,7 +269,6 @@ VkRenderPassBeginInfo renderpassBeginInfo(VkRenderPass renderPass, VkExtent2D wi
 	return info;
 }
 
-
 /******************************************************************************/
 /******************************************************************************/
 /******************************************************************************/
@@ -237,7 +277,6 @@ VkSemaphore createSemaphore(VkDevice pDevice)
 	VkSemaphoreCreateInfo lSemaphoreCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
 	VkSemaphore lSemaphore;
 	VK_CHECK(vkCreateSemaphore(pDevice, &lSemaphoreCreateInfo, nullptr, &lSemaphore));
-
 	return lSemaphore;
 }
 
@@ -246,9 +285,8 @@ VkFence createFence(VkDevice pDevice, VkFenceCreateFlags flags)
 {
 	VkFenceCreateInfo createInfo = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
 	createInfo.flags = flags;
-
 	VkFence fence;
-	vkCreateFence(pDevice, &createInfo, nullptr, &fence);
+	VK_CHECK(vkCreateFence(pDevice, &createInfo, nullptr, &fence));
 	return fence;
 }
 
@@ -262,22 +300,9 @@ VkCommandPool createCommandPool(VkDevice pDevice, uint32_t pFamilyIndex, VkComma
 }
 
 /******************************************************************************/
-VkImageView createImageView(VkDevice pDevice, VkImage pImage, VkFormat pFormat)
+VkImageView createImageView(VkDevice pDevice, VkImage pImage, VkFormat pFormat, VkImageAspectFlags pAspectFlags)
 {
-	VkImageViewCreateInfo lImageViewCreateInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
-	//VkImageViewCreateFlags     flags;
-	lImageViewCreateInfo.image = pImage;
-	lImageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-	lImageViewCreateInfo.format = pFormat;
-	lImageViewCreateInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
-	lImageViewCreateInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
-	lImageViewCreateInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
-	lImageViewCreateInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
-	lImageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	lImageViewCreateInfo.subresourceRange.baseMipLevel = 0;
-	lImageViewCreateInfo.subresourceRange.levelCount = 1;
-	lImageViewCreateInfo.subresourceRange.baseArrayLayer = 0;
-	lImageViewCreateInfo.subresourceRange.layerCount = 1;
+	VkImageViewCreateInfo lImageViewCreateInfo = imageViewCreateInfo(pImage, pFormat, pAspectFlags);
 	VkImageView lImageView;
 	VK_CHECK(vkCreateImageView(pDevice, &lImageViewCreateInfo, nullptr, &lImageView));
 	return lImageView;

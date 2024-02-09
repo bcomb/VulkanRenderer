@@ -9,7 +9,7 @@ set(sources
     VulkanContext.h VulkanContext.cpp
     VulkanDevice.h VulkanDevice.cpp
     VulkanBuffer.h VulkanBuffer.cpp
-    VulkanTexture.h VulkanTexture.cpp
+    VulkanImage.h VulkanImage.cpp
     VulkanHelper.h VulkanHelper.cpp    
     VulkanSwapchain.h VulkanSwapchain.cpp)
 
