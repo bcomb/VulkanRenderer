@@ -1,14 +1,16 @@
 #pragma once
 
 #include "vk_common.h"
-#include "VulkanDevice.h"
+#include <vk_mem_alloc.h>
 
 
 struct VulkanImage
 {
+    //static VulkanImage* create(VulkanContext& pContext, uint32_t pWidth, uint32_t pHeight );
+
     VkImage mImage;
-    VkImageView mImageView;
+    VkImageView mView;
+    VkExtent3D mExtent;
+    VkFormat mFormat;
     VmaAllocation mAllocation;
-    VkExtent3D mImageExtent;
-    VkFormat mImageFormat;
 };

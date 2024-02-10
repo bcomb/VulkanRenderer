@@ -46,5 +46,5 @@ struct VulkanSwapchain
     uint32_t mWidth, mHeight;           // The real size of Width/height, can be different from requested
     std::vector<VkImage> mImages;
     std::vector<VkImageView> mImageViews;
-    std::vector<VkFramebuffer> mFramebuffers;   // No more used with Vulkan 1.3
+    //std::vector<VkFramebuffer> mFramebuffers;   // No more used with Vulkan 1.3
 };

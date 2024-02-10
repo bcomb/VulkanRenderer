@@ -6,6 +6,47 @@
 namespace vkh
 {
 /******************************************************************************/
+void copyImageToImage(VkCommandBuffer cmd, VkImage source, VkImage destination, VkExtent2D srcSize, VkExtent2D dstSize)
+{
+	// Vulkan has 2 main ways of copying one image to another.
+	// you can use VkCmdCopyImage or VkCmdBlitImage.
+	// CopyImage is faster, but its much more restricted, for example the resolution on both images must match.
+	// Meanwhile, blit image lets you copy images of different formats and different sizes into one another.
+	// You have a source rectangle and a target rectangle, and the system copies it into its position.
+	// Those two functions are useful when setting up the engine, but later its best to ignore them and 
+	// write your own version that can do extra logic on a fullscreen fragment shader.
+	VkImageBlit2 blitRegion = { VK_STRUCTURE_TYPE_IMAGE_BLIT_2 };
+	blitRegion.srcOffsets[1].x = srcSize.width;
+	blitRegion.srcOffsets[1].y = srcSize.height;
+	blitRegion.srcOffsets[1].z = 1;
+
+	blitRegion.dstOffsets[1].x = dstSize.width;
+	blitRegion.dstOffsets[1].y = dstSize.height;
+	blitRegion.dstOffsets[1].z = 1;
+
+	blitRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	blitRegion.srcSubresource.baseArrayLayer = 0;
+	blitRegion.srcSubresource.layerCount = 1;
+	blitRegion.srcSubresource.mipLevel = 0;
+
+	blitRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	blitRegion.dstSubresource.baseArrayLayer = 0;
+	blitRegion.dstSubresource.layerCount = 1;
+	blitRegion.dstSubresource.mipLevel = 0;
+
+	VkBlitImageInfo2 blitInfo = { VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2 };
+	blitInfo.dstImage = destination;
+	blitInfo.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	blitInfo.srcImage = source;
+	blitInfo.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	blitInfo.filter = VK_FILTER_LINEAR;
+	blitInfo.regionCount = 1;
+	blitInfo.pRegions = &blitRegion;
+
+	vkCmdBlitImage2(cmd, &blitInfo);
+}
+
+/******************************************************************************/
 VkImageSubresourceRange imageSubresourceRange(VkImageAspectFlags aspectMask)
 {
 	VkImageSubresourceRange subImage = {};
@@ -15,43 +56,6 @@ VkImageSubresourceRange imageSubresourceRange(VkImageAspectFlags aspectMask)
 	subImage.baseArrayLayer = 0;
 	subImage.layerCount = VK_REMAINING_ARRAY_LAYERS;
 	return subImage;
-}
-
-/******************************************************************************/
-VkImageMemoryBarrier imageBarrier_1_0(VkImage pImage,
-	VkImageLayout oldLayout, VkImageLayout newLayout,
-	VkAccessFlags srcAccessMask, VkAccessFlags dstAccessMask)
-{
-	VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
-	barrier.srcAccessMask = srcAccessMask;
-	barrier.dstAccessMask = dstAccessMask;
-	barrier.oldLayout = oldLayout;
-	barrier.newLayout = newLayout;
-	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrier.image = pImage;
-	barrier.subresourceRange.aspectMask = (newLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL) ? VK_IMAGE_ASPECT_DEPTH_BIT  : VK_IMAGE_ASPECT_COLOR_BIT;
-	barrier.subresourceRange.baseMipLevel = 0;
-	barrier.subresourceRange.levelCount = 1;//VK_REMAINING_MIP_LEVELS;	// Seem android have bug with this constant
-	barrier.subresourceRange.baseArrayLayer = 0;
-	barrier.subresourceRange.layerCount = 1;//VK_REMAINING_ARRAY_LAYERS;
-
-	return barrier;
-}
-
-/******************************************************************************/
-VkBufferMemoryBarrier bufferBarrier_1_0(VkBuffer pBuffer, VkAccessFlags pSrcAccessMask, VkAccessFlags pDstAccessMask)
-{
-	VkBufferMemoryBarrier barrier = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
-	barrier.srcAccessMask = pSrcAccessMask;
-	barrier.dstAccessMask = pDstAccessMask;
-	// TODO : check GraphicsQueueIndex == TransfertQueueIndex
-	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;;
-	barrier.buffer = pBuffer;
-	barrier.offset = 0;
-	barrier.size = VK_WHOLE_SIZE;
-	return barrier;
 }
 
 /******************************************************************************/
@@ -81,7 +85,6 @@ void transitionImage(VkCommandBuffer cmd, VkImage image, VkImageLayout currentLa
 
 	vkCmdPipelineBarrier2(cmd, &depInfo);
 }
-
 
 /******************************************************************************/
 VkSemaphoreSubmitInfo semaphoreSubmitInfo(VkPipelineStageFlags2 stageMask, VkSemaphore semaphore)

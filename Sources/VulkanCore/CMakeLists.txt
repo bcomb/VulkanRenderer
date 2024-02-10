@@ -2,7 +2,6 @@ project (VulkanCore)
 
 set(sources
     main.cpp
-    Application.h Application.cpp
     Window.h Window.cpp
     vk_common.h
     Shaders.h Shaders.cpp
@@ -10,7 +9,8 @@ set(sources
     VulkanDevice.h VulkanDevice.cpp
     VulkanBuffer.h VulkanBuffer.cpp
     VulkanImage.h VulkanImage.cpp
-    VulkanHelper.h VulkanHelper.cpp    
+    VulkanHelper.h VulkanHelper.cpp
+    VulkanDescriptor.h VulkanDescriptor.cpp
     VulkanSwapchain.h VulkanSwapchain.cpp)
 
 source_group("Sources" FILES ${sources})

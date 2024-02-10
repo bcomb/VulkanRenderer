@@ -1,4 +1,4 @@
-project(Simple)
+project(FirstCompute)
 
 # Add source to this project's executable.
 add_executable(${PROJECT_NAME}  main.cpp)

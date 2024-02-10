@@ -25,6 +25,9 @@ namespace vkh
 	VkImageCreateInfo imageCreateInfo(VkFormat format, VkImageUsageFlags usageFlags, VkExtent3D extent);
 	VkImageViewCreateInfo imageViewCreateInfo(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags = VK_IMAGE_ASPECT_COLOR_BIT);
 
+	void copyImageToImage(VkCommandBuffer cmd, VkImage source, VkImage destination, VkExtent2D srcSize, VkExtent2D dstSize);
+
+
 	// Some create helpers
 	VkSemaphore createSemaphore(VkDevice pDevice);
 	VkFence createFence(VkDevice pDevice, uint32_t pFlags = VK_FENCE_CREATE_SIGNALED_BIT);
@@ -34,6 +37,8 @@ namespace vkh
 	VkFramebuffer createFramebuffer(VkDevice pDevice, VkRenderPass pRenderPass, VkImageView* imageViews, uint32_t imageViewCount, uint32_t pWidth, uint32_t pHeight);
 	VkSampler createTextureSampler(VkDevice pDevice);
 	std::vector<VkFramebuffer> createSwapchainFramebuffer(VkDevice pDevice, VkRenderPass pRenderPass, const VulkanSwapchain& pSwapchain);	// No more used with Vulkan 1.3
+
+	
 
 	// Barrier helpers
 	// VK_KHR_synchronization2 : https://github.com/KhronosGroup/Vulkan-Docs/wiki/Synchronization-Examples

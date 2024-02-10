@@ -26,5 +26,6 @@ add_subdirectory(Sources/VulkanCore)
 
 # Examples
 add_subdirectory(Sources/Examples/Simple)
+add_subdirectory(Sources/Examples/FirstCompute)
 
 #set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT Simple)

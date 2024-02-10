@@ -1,7 +1,7 @@
 #pragma once
 
 #include <volk.h>
-
+#include <assert.h>
 #define VK_CHECK(call_) do { VkResult result_ = call_;	assert(result_ == VK_SUCCESS); } while(0);
 #define ARRAY_COUNT(array_) (sizeof(array_) / sizeof(array_[0]))
 

@@ -159,12 +159,12 @@ void VulkanDevice::createLogicalDevice(VkQueueFlags pRequestedQueueTypes, VkInst
 			mQueues[i] = VK_NULL_HANDLE;
 	}
 
-	VmaAllocatorCreateInfo allocatorInfo = {};
-	allocatorInfo.physicalDevice = mPhysicalDevice;
-	allocatorInfo.device = mLogicalDevice;
-	allocatorInfo.instance = pVkInstance;
-	allocatorInfo.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
-	vmaCreateAllocator(&allocatorInfo, &mAllocator);
+	VmaAllocatorCreateInfo lAllocatorInfo = {};
+	lAllocatorInfo.physicalDevice = mPhysicalDevice;
+	lAllocatorInfo.device = mLogicalDevice;
+	lAllocatorInfo.instance = pVkInstance;
+	lAllocatorInfo.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+	vmaCreateAllocator(&lAllocatorInfo, &mAllocator);
 }
 
 /******************************************************************************/

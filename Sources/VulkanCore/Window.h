@@ -25,37 +25,22 @@ struct WindowAttributes
 };
 
 
-struct CommandBuffer
-{
-    VkCommandPool   mCommandPool;       // We use one command pool in case we want to use multiple threads (command pool are not thread safe)
-    VkCommandBuffer mCommandBuffer;
-    VkFence mFence;                     // Fence signaled when queue submit finished
-};
-
-struct FrameData
-{
-    CommandBuffer mCommandBuffer;       // Command buffer for rendering the frame
-    VkSemaphore mSwapchainSemaphore;    // Wait the swapchain image to be available
-    VkSemaphore mRenderSemaphore;       // Control presenting image
-
-    
-};
-
-class Window
+// Create a GLFW window
+// Create a surface attached to the window id given by GLFW
+// Create a swapchain on the surface
+// Manage resizing
+class VulkanGLFWWindow
 {
 public:
-    Window(VulkanContext pVulkanContext, WindowAttributes pRequestAttribs, const char* pName = nullptr);
-    ~Window();
+    VulkanGLFWWindow(VulkanInstance* pVulkanInstance, VulkanDevice* pVulkanDevice, WindowAttributes pRequestAttribs, const char* pName = nullptr);
+    ~VulkanGLFWWindow();
     bool shouldClose() const;
-    uint32_t width() const;
-    uint32_t height() const;
-
+    uint32_t width() const { return mAttribs.mWidth; }
+    uint32_t height() const { return mAttribs.mHeight; }
     // Native handle
     void* winId() const;
-
-    virtual void render();
-
     inline bool shouldClose() { return mShouldClose; }
+    VulkanSwapchain* getSwapchain() { return mVulkanSwapchain; }
 
 protected:
     // GLFW callback
@@ -66,23 +51,12 @@ protected:
 
 protected:
     WindowAttributes mRequestedAttribs; // What we ask for
-    WindowAttributes mAttribs; // What we obtain
-
+    WindowAttributes mAttribs;          // What we obtain
     struct GLFWwindow* mGLFWwindow = nullptr;
-    VulkanContext mVulkanContext;    
 
+    VulkanInstance* mVulkanInstance;
+    VulkanDevice*   mVulkanDevice;
     VulkanSwapchain* mVulkanSwapchain = nullptr;
-    VkRenderPass mRenderPass = VK_NULL_HANDLE;
-    std::vector<VkFramebuffer> mSwapchainFramebuffers;
-
-    VkCommandPool mCommandPool; // One per thread
-
-    VkSubmitInfo mSubmitInfo;
-
-    FrameData mFrames[FRAME_BUFFER_COUNT];
-    uint32_t mCurrentFrame = 0;
 
     bool mShouldClose = false;
-
-    inline FrameData& getCurrentFrame() { return mFrames[mCurrentFrame % FRAME_BUFFER_COUNT]; }
 };

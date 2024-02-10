@@ -9,47 +9,46 @@
 #include <GLFW/glfw3native.h>
 
 /******************************************************************************/
-void Window::WindowCloseCallback(GLFWwindow* pWindow)
+void VulkanGLFWWindow::WindowCloseCallback(GLFWwindow* pWindow)
 {
-    Window* lWindow = (Window*)glfwGetWindowUserPointer(pWindow);
+    VulkanGLFWWindow* lWindow = (VulkanGLFWWindow*)glfwGetWindowUserPointer(pWindow);
     if(lWindow) {
         lWindow->onWindowClose();
     }
 }
 
 /******************************************************************************/
-void Window::WindowSizeCallback(GLFWwindow* pWindow, int pWidth, int pHeight)
+void VulkanGLFWWindow::WindowSizeCallback(GLFWwindow* pWindow, int pWidth, int pHeight)
 {
-    Window* lWindow = (Window*)glfwGetWindowUserPointer(pWindow);
+    VulkanGLFWWindow* lWindow = (VulkanGLFWWindow*)glfwGetWindowUserPointer(pWindow);
     if (lWindow) {
         lWindow->onWindowSize((uint32_t)pWidth, (uint32_t)pHeight);
     }
 }
 
 /******************************************************************************/
-Window::Window(VulkanContext pVulkanContext, WindowAttributes pRequestAttrib, const char* pName)
-: mVulkanContext(pVulkanContext)
+VulkanGLFWWindow::VulkanGLFWWindow(VulkanInstance* pVulkanInstance, VulkanDevice* pVulkanDevice, WindowAttributes pRequestAttrib, const char* pName)
+: mVulkanInstance(pVulkanInstance)
+, mVulkanDevice(pVulkanDevice)
 , mRequestedAttribs(pRequestAttrib)
 {
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);	// MUST BE SET or SwapChain creation fail
     glfwWindowHint(GLFW_DECORATED, GLFW_TRUE);
 
-    VkDevice lDevice = mVulkanContext.mDevice->mLogicalDevice;
-
     mGLFWwindow = glfwCreateWindow((int)mRequestedAttribs.mWidth, (int)mRequestedAttribs.mHeight, pName, 0, 0);
     glfwSetWindowUserPointer(mGLFWwindow, this);
-    glfwSetWindowCloseCallback(mGLFWwindow, &Window::WindowCloseCallback);
-    glfwSetWindowSizeCallback(mGLFWwindow, &Window::WindowSizeCallback);
+    glfwSetWindowCloseCallback(mGLFWwindow, &VulkanGLFWWindow::WindowCloseCallback);
+    glfwSetWindowSizeCallback(mGLFWwindow, &VulkanGLFWWindow::WindowSizeCallback);
 
-    mVulkanSwapchain = new VulkanSwapchain(mVulkanContext.mInstance, mVulkanContext.mDevice);
+    mVulkanSwapchain = new VulkanSwapchain(mVulkanInstance, mVulkanDevice);
     mVulkanSwapchain->initSurface((void*)GetModuleHandle(0), winId());
     mVulkanSwapchain->createSwapchain(mRequestedAttribs.mWidth, mRequestedAttribs.mHeight, mRequestedAttribs.mSwapchainImageCount, mRequestedAttribs.mVSync);
 
-    mRenderPass = vkh::createRenderPass(mVulkanContext.mDevice->mLogicalDevice, mVulkanSwapchain->mColorFormat);
-
-    mSwapchainFramebuffers = vkh::createSwapchainFramebuffer(mVulkanContext.mDevice->mLogicalDevice, mRenderPass, *mVulkanSwapchain);
+    //mRenderPass = vkh::createRenderPass(mVulkanContext.mDevice->mLogicalDevice, mVulkanSwapchain->mColorFormat);
+    //mSwapchainFramebuffers = vkh::createSwapchainFramebuffer(mVulkanContext.mDevice->mLogicalDevice, mRenderPass, *mVulkanSwapchain);
 
     // Create FrameData
+    /*
     uint32_t lGraphicsQueueFamily = mVulkanContext.mDevice->getQueueFamilyIndex(VulkanQueueType::Graphics);
     for (int i = 0; i < FRAME_BUFFER_COUNT; ++i)
     {
@@ -68,96 +67,46 @@ Window::Window(VulkanContext pVulkanContext, WindowAttributes pRequestAttrib, co
         mFrames[i].mSwapchainSemaphore = vkh::createSemaphore(mVulkanContext.mDevice->mLogicalDevice);
         mFrames[i].mRenderSemaphore = vkh::createSemaphore(mVulkanContext.mDevice->mLogicalDevice);
     };        
+    */
 
     // TODO : check what we obtain
     mAttribs = mRequestedAttribs;
 }
 
 /******************************************************************************/
-Window::~Window()
+VulkanGLFWWindow::~VulkanGLFWWindow()
 {
 
 }
 
 /******************************************************************************/
-void* Window::winId() const
+void* VulkanGLFWWindow::winId() const
 {
     return (void*)glfwGetWin32Window(mGLFWwindow);
 }
 
 /******************************************************************************/
-void Window::onWindowClose()
+void VulkanGLFWWindow::onWindowClose()
 {
     mShouldClose = true;
 }
 
 /******************************************************************************/
-void Window::onWindowSize(uint32_t pWidth, uint32_t pHeight)
+void VulkanGLFWWindow::onWindowSize(uint32_t pWidth, uint32_t pHeight)
 {   
     // Probably necessary
-    VK_CHECK(vkDeviceWaitIdle(mVulkanContext.mDevice->mLogicalDevice));
+    VK_CHECK(vkDeviceWaitIdle(mVulkanDevice->mLogicalDevice));
 
     mRequestedAttribs.mWidth = pWidth;
     mRequestedAttribs.mHeight = pHeight;
     mVulkanSwapchain->resizeSwapchain(mRequestedAttribs.mWidth, mRequestedAttribs.mHeight, mRequestedAttribs.mSwapchainImageCount, mRequestedAttribs.mVSync);
 
-    for (auto&& lFramebuffer : mSwapchainFramebuffers)
-        vkDestroyFramebuffer(mVulkanContext.mDevice->mLogicalDevice, lFramebuffer, NULL);
-    mSwapchainFramebuffers.clear();
-
-    mSwapchainFramebuffers = vkh::createSwapchainFramebuffer(mVulkanContext.mDevice->mLogicalDevice, mRenderPass, *mVulkanSwapchain);
+    // No more needed with Vulkan 1.3.0
+    //for (auto&& lFramebuffer : mSwapchainFramebuffers)
+    //    vkDestroyFramebuffer(mVulkanDevice->mLogicalDevice, lFramebuffer, NULL);
+    //mSwapchainFramebuffers.clear();
+    //mSwapchainFramebuffers = vkh::createSwapchainFramebuffer(mVulkanDevice->mLogicalDevice, mRenderPass, *mVulkanSwapchain);
 
 #pragma message("TODO : check what we obtain")
     mAttribs = mRequestedAttribs;
-}
-
-/******************************************************************************/
-void Window::render()
-{
-    FrameData& lCurrentFrame = getCurrentFrame();    
-    VkCommandBuffer lCommandBuffer = lCurrentFrame.mCommandBuffer.mCommandBuffer;
-
-    // Wait until the gpu has finished rendering the last frame.
-    VK_CHECK(vkWaitForFences(mVulkanContext.mDevice->mLogicalDevice, 1, &lCurrentFrame.mCommandBuffer.mFence, VK_TRUE, UINT64_MAX));
-    VK_CHECK(vkResetFences(mVulkanContext.mDevice->mLogicalDevice, 1, &lCurrentFrame.mCommandBuffer.mFence));
-
-    mVulkanSwapchain->acquireNextImage(getCurrentFrame().mSwapchainSemaphore);
-
-    VK_CHECK(vkResetCommandBuffer(lCommandBuffer, 0));
-
-    // Begin recording, tell vulkan we are going to use this command buffer exactly once
-    VkCommandBufferBeginInfo lCmdBeginInfo = vkh::commandBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
-    VK_CHECK(vkBeginCommandBuffer(lCommandBuffer, &lCmdBeginInfo));
-
-    // Make the swapchain image ready for rendering
-    vkh::transitionImage(lCommandBuffer, mVulkanSwapchain->getImage(), VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
-
-    float flash = (float)fabs(sin(mCurrentFrame / 120.0f));
-    VkClearColorValue lClearColor = { 0.3f, 0.3f, flash, 1.0f };
-
-    VkImageSubresourceRange lClearRange = vkh::imageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
-    vkCmdClearColorImage(lCommandBuffer, mVulkanSwapchain->getImage(), VK_IMAGE_LAYOUT_GENERAL, &lClearColor, 1, &lClearRange);
-
-    // Make the swapchain ready form presentation
-    vkh::transitionImage(lCommandBuffer, mVulkanSwapchain->getImage(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
-
-    VK_CHECK(vkEndCommandBuffer(lCommandBuffer));
-
-    // Prepare the submission to the queue. 
-    // we want to wait on the _presentSemaphore, as that semaphore is signaled when the swapchain is ready
-    // we will signal the _renderSemaphore, to signal that rendering has finished
-    VkCommandBufferSubmitInfo lCmdSubmitInfo = vkh::commandBufferSubmitInfo(lCommandBuffer);
-
-
-    VkSemaphoreSubmitInfo lWaitInfo = vkh::semaphoreSubmitInfo(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, lCurrentFrame.mSwapchainSemaphore);
-    VkSemaphoreSubmitInfo lSignalInfo = vkh::semaphoreSubmitInfo(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, lCurrentFrame.mRenderSemaphore);
-    VkSubmitInfo2 lSubmitInfo = vkh::submitInfo(&lCmdSubmitInfo, &lSignalInfo, &lWaitInfo);
-
-    // Submit command buffer to the queue and execute it.
-    // The command buffer fence will now block until the graphic commands finish execution
-    VK_CHECK(vkQueueSubmit2(mVulkanContext.mDevice->getQueue(VulkanQueueType::Graphics), 1, &lSubmitInfo, lCurrentFrame.mCommandBuffer.mFence));
-
-    // Present the image (wait submit finished with the mRenderSemaphore)
-    mVulkanSwapchain->queuePresent(mVulkanContext.mDevice->getQueue(VulkanQueueType::Graphics), lCurrentFrame.mRenderSemaphore);
-    ++mCurrentFrame;
 }

@@ -656,16 +656,17 @@ int main(int argc, const char* argv[])
 	VulkanDevice* lDevice = new VulkanDevice(lPhysicalDevice);
 	lDevice->createLogicalDevice(VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT, lVulkanInstance->mVulkanInstance);
 
-	VulkanContext lContext = { lVulkanInstance, lDevice };
 
+	/*
 	WindowAttributes lWinAttr;
-	Window* lWindow = new Window(lContext, lWinAttr, "VulkanTest");
+	VulkanGLFWWindow* lWindow = new VulkanGLFWWindow(lVulkanInstance, lDevice, lWinAttr, "VulkanTest");
 
 	while (1)
 	{
 		glfwPollEvents();		
 		lWindow->render();
 	}
+	*/
 
 	return 0;
 }
