@@ -3,16 +3,7 @@
 #include "VulkanContext.h"
 #include "VulkanDevice.h"
 #include "VulkanSwapchain.h"
-
 #include <stdint.h>
-
-const uint32_t FRAME_BUFFER_COUNT = 2;  // Double buffer
-
-struct VulkanContext
-{
-    VulkanInstance* mInstance;
-    VulkanDevice* mDevice;    
-};
 
 struct WindowAttributes
 {
@@ -29,7 +20,7 @@ struct WindowAttributes
 // Create a GLFW window
 // Create a surface attached to the window id given by GLFW
 // Create a swapchain on the surface
-// Manage resizing
+// Manage resizing (it try...)
 class VulkanGLFWWindow
 {
 public:
