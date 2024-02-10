@@ -1,10 +1,8 @@
 project (VulkanCore)
 
 set(sources
-    main.cpp
     Window.h Window.cpp
     vk_common.h
-    Shaders.h Shaders.cpp
     VulkanShader.h VulkanShader.cpp
     VulkanContext.h VulkanContext.cpp
     VulkanDevice.h VulkanDevice.cpp
@@ -35,7 +33,7 @@ ENDIF(WIN32)
 target_include_directories(${PROJECT_NAME} PUBLIC ${CMAKE_HOME_DIRECTORY}/ThirdParty/stb) # to access stb
 target_include_directories(${PROJECT_NAME} PUBLIC ${CMAKE_HOME_DIRECTORY}/ThirdParty/VulkanMemoryAllocator/include) # to access Vma
 
-target_link_libraries (${PROJECT_NAME} PUBLIC glfw volk meshoptimizer)
+target_link_libraries (${PROJECT_NAME} PUBLIC glfw volk)
 #set_target_properties(${PROJECT_NAME} PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_HOME_DIRECTORY}/bin")
 #set_target_properties(${PROJECT_NAME} PROPERTIES DEBUG_POSTFIX ${CMAKE_DEBUG_POSTFIX})
 
