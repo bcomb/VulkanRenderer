@@ -34,6 +34,8 @@ public:
     inline bool shouldClose() { return mShouldClose; }
     VulkanSwapchain* getSwapchain() { return mVulkanSwapchain; }
 
+    struct GLFWwindow* getGLFWwindow() { return mGLFWwindow; }
+
 protected:
     // GLFW callback
     static void WindowCloseCallback(struct GLFWwindow* pWindow);

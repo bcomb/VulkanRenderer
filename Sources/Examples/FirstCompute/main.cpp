@@ -10,6 +10,14 @@
 #include <VulkanPipeline.h>
 
 #include "assert.h"
+#include <vector>
+#include <functional>
+
+// Imgui
+#define IMGUI_IMPL_VULKAN_NO_PROTOTYPES
+#include "imgui.h"
+#include "backends/imgui_impl_glfw.h"
+#include "backends/imgui_impl_vulkan.h"
 
 
 struct CommandBuffer
@@ -17,6 +25,25 @@ struct CommandBuffer
     VkCommandPool   mCommandPool;       // We use one command pool in case we want to use multiple threads (command pool are not thread safe)
     VkCommandBuffer mCommandBuffer;
     VkFence mFence;                     // Fence signaled when queue submit finished
+
+    // Create vulkan object
+    void initialize(VulkanDevice* pDevice)
+    {
+        uint32_t lGraphicsQueueFamily = pDevice->getQueueFamilyIndex(VulkanQueueType::Graphics);
+
+        // Command pool
+        // Note that the pool allow reseting of individual command buffer (VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT
+        mCommandPool = vkh::createCommandPool(pDevice->mLogicalDevice, lGraphicsQueueFamily, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
+
+        // Command buffer use for rendering
+        // allocate the default command buffer that we will use for rendering
+        VkCommandBufferAllocateInfo lCmdAllocInfo = vkh::commandBufferAllocateInfo(mCommandPool, 1, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+        VK_CHECK(vkAllocateCommandBuffers(pDevice->mLogicalDevice, &lCmdAllocInfo, &mCommandBuffer));
+
+        mFence = vkh::createFence(pDevice->mLogicalDevice);
+    }
+
+    //void finalize()
 };
 
 struct FrameData
@@ -33,24 +60,25 @@ struct VulkanApp
     VulkanSwapchain* mSwapchain;
     VulkanGLFWWindow* mWindow;
 
-    // Descriptors
+    //
+    CommandBuffer mImmediateCommandBuffer;
     DescriptorAllocator mGlobalDescriptorAllocator;
 
-    
+    // Vulkan per frame data
+    std::vector<FrameData> mFrameData;
+    uint32_t mCurrentFrame = 0;
+
+    // Descriptors        
     VkDescriptorSet mDrawImageDescriptors;
     VkDescriptorSetLayout mDrawImageDescriptorLayout;    
 
     // Resources
     VulkanImage mDrawImage;
 
-
     VulkanShader mGradientComputeShader; 
     VkPipelineLayout mGradientPipelineLayout;
     VkPipeline mGradientPipeline;
 
-    // Vulkan per frame data
-    std::vector<FrameData> mFrameData;
-    uint32_t mCurrentFrame = 0;
 
     std::string getShaderPath()
     {
@@ -72,7 +100,6 @@ struct VulkanApp
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);	// MUST BE SET or SwapChain creation fail
         glfwWindowHint(GLFW_DECORATED, GLFW_TRUE);
 
-
         mInstance = new VulkanInstance;
         mInstance->createInstance(VK_API_VERSION_1_3, true);
         mInstance->enumeratePhysicalDevices();
@@ -80,6 +107,8 @@ struct VulkanApp
 
         mDevice = new VulkanDevice(lPhysicalDevice);
         mDevice->createLogicalDevice(VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT, mInstance->mVulkanInstance);
+
+        mImmediateCommandBuffer.initialize(mDevice);
     }
 
     void initSwapchain()
@@ -94,16 +123,7 @@ struct VulkanApp
         uint32_t lGraphicsQueueFamily = mDevice->getQueueFamilyIndex(VulkanQueueType::Graphics);
         for (auto&& lFrameData : mFrameData)
         {
-            // Command pool
-            // Note that the pool allow reseting of individual command buffer (VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT
-            lFrameData.mCommandBuffer.mCommandPool = vkh::createCommandPool(mDevice->mLogicalDevice, lGraphicsQueueFamily, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
-
-            // Command buffer use for rendering
-            // allocate the default command buffer that we will use for rendering
-            VkCommandBufferAllocateInfo lCmdAllocInfo = vkh::commandBufferAllocateInfo(lFrameData.mCommandBuffer.mCommandPool, 1, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
-            VK_CHECK(vkAllocateCommandBuffers(mDevice->mLogicalDevice, &lCmdAllocInfo, &lFrameData.mCommandBuffer.mCommandBuffer));
-
-            lFrameData.mCommandBuffer.mFence = vkh::createFence(mDevice->mLogicalDevice);
+            lFrameData.mCommandBuffer.initialize(mDevice);
 
             // The semaphore is used to synchronize the image acquisition and the rendering
             lFrameData.mSwapchainSemaphore = vkh::createSemaphore(mDevice->mLogicalDevice);
@@ -200,6 +220,65 @@ struct VulkanApp
         vkh::transitionImage(pCmd, mSwapchain->getImage(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
     }
 
+    void initImGui()
+    {
+        // 1: create descriptor pool for IMGUI
+        //  the size of the pool is very oversize, but it's copied from imgui demo
+        //  itself.
+        VkDescriptorPoolSize pool_sizes[] = { { VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
+            { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
+            { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
+            { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
+            { VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
+            { VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
+            { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
+            { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
+            { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 } };
+
+        VkDescriptorPoolCreateInfo pool_info = {};
+        pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+        pool_info.maxSets = 1000;
+        pool_info.poolSizeCount = (uint32_t)std::size(pool_sizes);
+        pool_info.pPoolSizes = pool_sizes;
+
+        VkDescriptorPool imguiPool;
+        VK_CHECK(vkCreateDescriptorPool(mDevice->mLogicalDevice, &pool_info, nullptr, &imguiPool));
+
+        // 2: initialize imgui library
+
+        // this initializes the core structures of imgui
+        ImGui::CreateContext();          
+
+        // this initializes imgui for GLFW
+        ImGui_ImplGlfw_InitForVulkan(mWindow->getGLFWwindow(), true);
+
+        // this initializes imgui for Vulkan
+        ImGui_ImplVulkan_InitInfo init_info = {};
+        init_info.Instance = mInstance->mVulkanInstance;
+        init_info.PhysicalDevice = mDevice->mPhysicalDevice;
+        init_info.Device = mDevice->mLogicalDevice;
+        init_info.Queue = mDevice->getQueue(VulkanQueueType::Graphics);
+        init_info.DescriptorPool = imguiPool;
+        init_info.MinImageCount = 3;
+        init_info.ImageCount = 3;
+        init_info.UseDynamicRendering = true;
+        init_info.ColorAttachmentFormat = mSwapchain->mColorFormat;
+
+        init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+
+        // Use the volk loaded function to load the other vulkan functions
+        ImGui_ImplVulkan_LoadFunctions([](const char* function_name, void* vulkan_instance) {
+            return vkGetInstanceProcAddr(*(reinterpret_cast<VkInstance*>(vulkan_instance)), function_name);
+            }, &mInstance->mVulkanInstance);
+        ImGui_ImplVulkan_Init(&init_info, VK_NULL_HANDLE);
+
+        // execute a gpu command to upload imgui font textures
+        //immediateSubmit([&](VkCommandBuffer cmd) { ImGui_ImplVulkan_CreateFontsTexture(cmd); });
+    }
+
     // Clear the mDrawImage.mImage
     // Copy the mDrawImage.mImage to the swapchain image
     // Make the swapchain image ready for presentation
@@ -244,7 +323,7 @@ struct VulkanApp
         vkCmdBindDescriptorSets(pCmd, VK_PIPELINE_BIND_POINT_COMPUTE, mGradientPipelineLayout, 0, 1, &mDrawImageDescriptors, 0, nullptr);
 
         // Dispatch
-        vkCmdDispatch(pCmd, ceil(mDrawImage.mExtent.width / 16.0), ceil(mDrawImage.mExtent.height / 16.0), 1);
+        vkCmdDispatch(pCmd, (uint32_t)ceil(mDrawImage.mExtent.width / 16.0), (uint32_t)ceil(mDrawImage.mExtent.height / 16.0), 1);
 
         // Ready fo src transfert
         vkh::transitionImage(pCmd, mDrawImage.mImage, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
@@ -254,6 +333,39 @@ struct VulkanApp
 
         // Make the swapchain ready for presentation
         vkh::transitionImage(pCmd, mSwapchain->getImage(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+    }
+
+    void immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function)
+    {               
+        VK_CHECK(vkResetFences(mDevice->mLogicalDevice, 1, &mImmediateCommandBuffer.mFence));
+        VK_CHECK(vkResetCommandBuffer(mImmediateCommandBuffer.mCommandBuffer, 0));
+
+        VkCommandBufferBeginInfo cmdBeginInfo = vkh::commandBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+
+        VK_CHECK(vkBeginCommandBuffer(mImmediateCommandBuffer.mCommandBuffer, &cmdBeginInfo));
+
+        function(mImmediateCommandBuffer.mCommandBuffer);
+
+        VK_CHECK(vkEndCommandBuffer(mImmediateCommandBuffer.mCommandBuffer));
+
+        VkCommandBufferSubmitInfo lCmdInfo = vkh::commandBufferSubmitInfo(mImmediateCommandBuffer.mCommandBuffer);
+        VkSubmitInfo2 lSubmitInfo = vkh::submitInfo(&lCmdInfo, nullptr, nullptr);
+
+        VK_CHECK(vkQueueSubmit2(mDevice->getQueue(VulkanQueueType::Graphics), 1, &lSubmitInfo, mImmediateCommandBuffer.mFence));
+
+        VK_CHECK(vkWaitForFences(mDevice->mLogicalDevice, 1, &mImmediateCommandBuffer.mFence, true, 9999999999));
+    }
+
+    void drawImGui(VkCommandBuffer pCmd, VkImageView pTargetImageView)
+    {
+        VkRenderingAttachmentInfo colorAttachment = vkh::renderingAttachmentInfo(pTargetImageView, VK_IMAGE_LAYOUT_GENERAL, nullptr);
+        VkRenderingInfo renderInfo = vkh::renderingInfo(VkRect2D{ VkOffset2D { 0, 0 }, {mSwapchain->mWidth, mSwapchain->mHeight} }, &colorAttachment, nullptr);
+
+        vkCmdBeginRendering(pCmd, &renderInfo);
+        
+        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), pCmd);
+
+        vkCmdEndRendering(pCmd);
     }
 
     void render()
@@ -276,7 +388,10 @@ struct VulkanApp
         
         //draw_background_by_clearing_image(lCommandBuffer);
         draw_background_with_gradient_compute_shader(lCommandBuffer);
-
+        
+        vkh::transitionImage(lCommandBuffer, mSwapchain->getImage(), VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+        drawImGui(lCommandBuffer, mSwapchain->getImageView());
+        vkh::transitionImage(lCommandBuffer, mSwapchain->getImage(), VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
         //vkh::transitionImage(lCommandBuffer, mSwapchain->getImage(), VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
         VK_CHECK(vkEndCommandBuffer(lCommandBuffer));
@@ -285,7 +400,6 @@ struct VulkanApp
         // we want to wait on the _presentSemaphore, as that semaphore is signaled when the swapchain is ready
         // we will signal the _renderSemaphore, to signal that rendering has finished
         VkCommandBufferSubmitInfo lCmdSubmitInfo = vkh::commandBufferSubmitInfo(lCommandBuffer);
-
 
         VkSemaphoreSubmitInfo lWaitInfo = vkh::semaphoreSubmitInfo(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, lCurrentFrame.mSwapchainSemaphore);
         VkSemaphoreSubmitInfo lSignalInfo = vkh::semaphoreSubmitInfo(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, lCurrentFrame.mRenderSemaphore);
@@ -303,14 +417,27 @@ struct VulkanApp
     int run()
     {
         init();
-        initSwapchain();
+        initSwapchain();        
         initResources();
         initDescriptors();
         initPipelines();
 
+        initImGui();
+
         while (!mWindow->shouldClose())
         {
             glfwPollEvents();
+
+            ImGui_ImplVulkan_NewFrame();
+            ImGui_ImplGlfw_NewFrame();
+            ImGui::NewFrame();
+
+            //some imgui UI to test
+            ImGui::ShowDemoWindow();
+
+            //make imgui calculate internal draw structures
+            ImGui::Render();
+
             render();
         }
 

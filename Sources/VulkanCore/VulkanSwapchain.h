@@ -24,8 +24,9 @@ struct VulkanSwapchain
     // Present the current image to the queue (the last one acquired)
     VkResult queuePresent(VkQueue pQueue, VkSemaphore pWaitSemaphore = VK_NULL_HANDLE);
 
-    // Get the current image
+    // Get the current image/view
     inline VkImage getImage() { return mImages[mSwapchainImageIndex]; }
+    inline VkImageView getImageView() { return mImageViews[mSwapchainImageIndex]; }
 
     void cleanUp();
 

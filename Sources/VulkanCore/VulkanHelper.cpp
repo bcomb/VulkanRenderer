@@ -87,6 +87,38 @@ void transitionImage(VkCommandBuffer cmd, VkImage image, VkImageLayout currentLa
 }
 
 /******************************************************************************/
+VkRenderingAttachmentInfo renderingAttachmentInfo(VkImageView pView, VkImageLayout pLayout, VkClearValue* pClearValue)
+{
+	VkRenderingAttachmentInfo lInfo = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
+	lInfo.imageView = pView;
+	lInfo.imageLayout = pLayout;
+	//VkResolveModeFlagBits    resolveMode;				// MSAA render target mode
+	//VkImageView              resolveImageView;
+	//VkImageLayout            resolveImageLayout;
+	lInfo.loadOp = pClearValue ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+	lInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	if(pClearValue)
+		lInfo.clearValue = *pClearValue;
+
+	return lInfo;
+}
+
+/******************************************************************************/
+VkRenderingInfo renderingInfo(const VkRect2D& pRenderArea, const VkRenderingAttachmentInfo* pColorAttachments, const VkRenderingAttachmentInfo* pDepthAttachment, const VkRenderingAttachmentInfo* pStencilAttachment)
+{
+	VkRenderingInfo lInfo = { VK_STRUCTURE_TYPE_RENDERING_INFO };
+	//VkRenderingFlags                    flags;
+	lInfo.renderArea = pRenderArea;
+	lInfo.layerCount = 1;
+	//uint32_t                            viewMask;
+	lInfo.colorAttachmentCount = 1;
+	lInfo.pColorAttachments = pColorAttachments;
+	lInfo.pDepthAttachment = pDepthAttachment;
+	lInfo.pStencilAttachment = pStencilAttachment;
+	return lInfo;
+}
+
+/******************************************************************************/
 VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo(const VkDescriptorSetLayout* pSetLayouts, uint32_t pSetLayoutCount)
 {
 	VkPipelineLayoutCreateInfo lCreateInfo = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };

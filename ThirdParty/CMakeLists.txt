@@ -14,6 +14,7 @@ target_include_directories(stb PUBLIC stb)
 
 add_library(imgui STATIC)
 target_include_directories(imgui PUBLIC imgui)
+target_compile_definitions(imgui PUBLIC -DIMGUI_IMPL_VULKAN_NO_PROTOTYPES) # Tell imgui to don't load vulkan functions
 target_link_libraries(imgui PUBLIC glfw volk)
 target_sources(imgui PRIVATE 
   imgui/imgui.h

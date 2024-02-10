@@ -20,6 +20,9 @@ namespace vkh
 	VkCommandBufferSubmitInfo commandBufferSubmitInfo(VkCommandBuffer cmd);
 	VkSubmitInfo2 submitInfo(VkCommandBufferSubmitInfo* cmd, VkSemaphoreSubmitInfo* signalSemaphoreInfo, VkSemaphoreSubmitInfo* waitSemaphoreInfo);
 
+	VkRenderingAttachmentInfo renderingAttachmentInfo(VkImageView view, VkImageLayout layout, VkClearValue* clear = nullptr);
+	VkRenderingInfo renderingInfo(const VkRect2D& pRenderArea, const VkRenderingAttachmentInfo* pColorAttachments, const VkRenderingAttachmentInfo* pDepthAttachment = nullptr, const VkRenderingAttachmentInfo* pStencilAttachment = nullptr);
+
 	// Pipeline helpers
 	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo(const VkDescriptorSetLayout* pSetLayouts, uint32_t pSetLayoutCount);
 	VkPipelineShaderStageCreateInfo pipelineShaderStageCreateInfo(VkShaderStageFlagBits stage, VkShaderModule shaderModule, const char* pEntryName = "main");
