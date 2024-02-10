@@ -14,7 +14,6 @@
 #include <functional>
 
 // Imgui
-#define IMGUI_IMPL_VULKAN_NO_PROTOTYPES
 #include "imgui.h"
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_vulkan.h"
@@ -68,12 +67,22 @@ struct VulkanApp
     std::vector<FrameData> mFrameData;
     uint32_t mCurrentFrame = 0;
 
-    // Descriptors        
+    // Care to alignment
+    struct PushConstantData
+    {
+        float data0[4];
+        float data1[4];
+        float data2[4];
+        float data3[4];
+    } mPushConstants = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+    // Descriptors
     VkDescriptorSet mDrawImageDescriptors;
     VkDescriptorSetLayout mDrawImageDescriptorLayout;    
 
     // Resources
     VulkanImage mDrawImage;
+
 
     VulkanShader mGradientComputeShader; 
     VkPipelineLayout mGradientPipelineLayout;
@@ -169,9 +178,10 @@ struct VulkanApp
         assert(mGradientComputeShader.isValid());
 
         // Create a compute pipeline
-        VkPipelineLayoutCreateInfo gradientPipelineLayout = vkh::pipelineLayoutCreateInfo(&mDrawImageDescriptorLayout, 1);        
-        VK_CHECK(vkCreatePipelineLayout(mDevice->mLogicalDevice, &gradientPipelineLayout, nullptr, &mGradientPipelineLayout));
+        VkPushConstantRange lPushConstantRange = vkh::pushConstantRange(VK_SHADER_STAGE_COMPUTE_BIT, sizeof(PushConstantData), 0);
+        VkPipelineLayoutCreateInfo gradientPipelineLayout = vkh::pipelineLayoutCreateInfo(&mDrawImageDescriptorLayout, 1, &lPushConstantRange, 0);
 
+        VK_CHECK(vkCreatePipelineLayout(mDevice->mLogicalDevice, &gradientPipelineLayout, nullptr, &mGradientPipelineLayout));
         VkPipelineShaderStageCreateInfo gradientShaderStage = vkh::pipelineShaderStageCreateInfo(mGradientComputeShader.mStage, mGradientComputeShader.mShaderModule);
         VkComputePipelineCreateInfo gradientPipeline = vkh::computePipelineCreateInfo(mGradientPipelineLayout, gradientShaderStage);
         VK_CHECK(vkCreateComputePipelines(mDevice->mLogicalDevice, VK_NULL_HANDLE, 1, &gradientPipeline, nullptr, &mGradientPipeline));
@@ -322,6 +332,9 @@ struct VulkanApp
         // Bind the descriptor set
         vkCmdBindDescriptorSets(pCmd, VK_PIPELINE_BIND_POINT_COMPUTE, mGradientPipelineLayout, 0, 1, &mDrawImageDescriptors, 0, nullptr);
 
+        // Push constant
+        vkCmdPushConstants(pCmd, mGradientPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushConstantData), &mPushConstants);
+        
         // Dispatch
         vkCmdDispatch(pCmd, (uint32_t)ceil(mDrawImage.mExtent.width / 16.0), (uint32_t)ceil(mDrawImage.mExtent.height / 16.0), 1);
 
@@ -414,6 +427,18 @@ struct VulkanApp
         ++mCurrentFrame;
     }
 
+    void UI_PushConstantWidget()
+    {
+        if (ImGui::Begin("background")) {
+            ImGui::Text("PushConstant data");
+            ImGui::ColorEdit4("data0", (float*)&mPushConstants.data0);
+            ImGui::ColorEdit4("data1", (float*)&mPushConstants.data0);
+            ImGui::ColorEdit4("data2", (float*)&mPushConstants.data0);
+            ImGui::ColorEdit4("data3", (float*)&mPushConstants.data0);
+            ImGui::End();
+        }
+    }
+
     int run()
     {
         init();
@@ -433,7 +458,9 @@ struct VulkanApp
             ImGui::NewFrame();
 
             //some imgui UI to test
-            ImGui::ShowDemoWindow();
+            //ImGui::ShowDemoWindow();
+
+            UI_PushConstantWidget();
 
             //make imgui calculate internal draw structures
             ImGui::Render();

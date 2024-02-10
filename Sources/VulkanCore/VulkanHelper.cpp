@@ -119,14 +119,24 @@ VkRenderingInfo renderingInfo(const VkRect2D& pRenderArea, const VkRenderingAtta
 }
 
 /******************************************************************************/
-VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo(const VkDescriptorSetLayout* pSetLayouts, uint32_t pSetLayoutCount)
+VkPushConstantRange pushConstantRange(VkShaderStageFlags pShaderStageFlags, uint32_t pSize, uint32_t pOffset)
+{
+	VkPushConstantRange lConstantRange = {};
+	lConstantRange.stageFlags = pShaderStageFlags;
+	lConstantRange.offset = pOffset;
+	lConstantRange.size = pSize;
+	return lConstantRange;
+}
+
+/******************************************************************************/
+VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo(const VkDescriptorSetLayout* pSetLayouts, uint32_t pSetLayoutCount, const VkPushConstantRange* pPushConstantRanges, uint32_t pPushConstantRangeCount)
 {
 	VkPipelineLayoutCreateInfo lCreateInfo = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
     //VkPipelineLayoutCreateFlags        flags;
     lCreateInfo.setLayoutCount = pSetLayoutCount;
     lCreateInfo.pSetLayouts = pSetLayouts;
-    //lCreateInfo.pushConstantRangeCount = 0;
-    //lCreateInfo.pPushConstantRanges = nullptr;
+    lCreateInfo.pushConstantRangeCount = pPushConstantRangeCount;
+    lCreateInfo.pPushConstantRanges = pPushConstantRanges;
     return lCreateInfo;
 }
 

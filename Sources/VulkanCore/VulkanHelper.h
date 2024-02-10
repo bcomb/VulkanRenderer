@@ -24,7 +24,8 @@ namespace vkh
 	VkRenderingInfo renderingInfo(const VkRect2D& pRenderArea, const VkRenderingAttachmentInfo* pColorAttachments, const VkRenderingAttachmentInfo* pDepthAttachment = nullptr, const VkRenderingAttachmentInfo* pStencilAttachment = nullptr);
 
 	// Pipeline helpers
-	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo(const VkDescriptorSetLayout* pSetLayouts, uint32_t pSetLayoutCount);
+	VkPushConstantRange pushConstantRange(VkShaderStageFlags pShaderStageFlags, uint32_t pSize, uint32_t pOffset = 0);
+	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo(const VkDescriptorSetLayout* pSetLayouts, uint32_t pSetLayoutCount, const VkPushConstantRange* pPushConstantRanges = nullptr, uint32_t pPushConstantRangeCount = 0);
 	VkPipelineShaderStageCreateInfo pipelineShaderStageCreateInfo(VkShaderStageFlagBits stage, VkShaderModule shaderModule, const char* pEntryName = "main");
 	VkComputePipelineCreateInfo computePipelineCreateInfo(VkPipelineLayout layout, VkPipelineShaderStageCreateInfo shaderStageInfo);
 

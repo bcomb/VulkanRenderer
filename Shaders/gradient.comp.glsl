@@ -4,6 +4,14 @@ layout (local_size_x = 16, local_size_y = 16) in;
 
 layout(rgba8, set = 0, binding = 0) uniform image2D image;
 
+// push constant block
+layout (push_constant) uniform constants_t {
+    vec4 data0;
+    vec4 data1;
+    vec4 data2;
+    vec4 data3;
+} PushConstants;
+
 
 void main() 
 {
@@ -20,7 +28,7 @@ void main()
             color.y = float(texelCoord.y)/(size.y);	
         }
     
-        imageStore(image, texelCoord, color);
+        imageStore(image, texelCoord, color * PushConstants.data0);
     }
 }
 
