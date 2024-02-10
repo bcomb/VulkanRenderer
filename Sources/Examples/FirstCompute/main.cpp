@@ -179,7 +179,7 @@ struct VulkanApp
 
         // Create a compute pipeline
         VkPushConstantRange lPushConstantRange = vkh::pushConstantRange(VK_SHADER_STAGE_COMPUTE_BIT, sizeof(PushConstantData), 0);
-        VkPipelineLayoutCreateInfo gradientPipelineLayout = vkh::pipelineLayoutCreateInfo(&mDrawImageDescriptorLayout, 1, &lPushConstantRange, 0);
+        VkPipelineLayoutCreateInfo gradientPipelineLayout = vkh::pipelineLayoutCreateInfo(&mDrawImageDescriptorLayout, 1, &lPushConstantRange, 1);
 
         VK_CHECK(vkCreatePipelineLayout(mDevice->mLogicalDevice, &gradientPipelineLayout, nullptr, &mGradientPipelineLayout));
         VkPipelineShaderStageCreateInfo gradientShaderStage = vkh::pipelineShaderStageCreateInfo(mGradientComputeShader.mStage, mGradientComputeShader.mShaderModule);
