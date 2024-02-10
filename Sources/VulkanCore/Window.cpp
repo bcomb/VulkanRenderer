@@ -34,6 +34,7 @@ VulkanGLFWWindow::VulkanGLFWWindow(VulkanInstance* pVulkanInstance, VulkanDevice
 {
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);	// MUST BE SET or SwapChain creation fail
     glfwWindowHint(GLFW_DECORATED, GLFW_TRUE);
+    glfwWindowHint(GLFW_RESIZABLE, pRequestAttrib.mResizable ? GLFW_TRUE : GLFW_FALSE);
 
     mGLFWwindow = glfwCreateWindow((int)mRequestedAttribs.mWidth, (int)mRequestedAttribs.mHeight, pName, 0, 0);
     glfwSetWindowUserPointer(mGLFWwindow, this);

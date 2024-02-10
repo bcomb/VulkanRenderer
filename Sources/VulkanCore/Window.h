@@ -16,12 +16,13 @@ struct VulkanContext
 
 struct WindowAttributes
 {
-    uint32_t mWidth = 512;
-    uint32_t mHeight = 512;
+    uint32_t mWidth = 1024;
+    uint32_t mHeight = 768;
     uint32_t mSwapchainImageCount = 2; // generally value between 1-3
-    bool mVSync = false; // vsync enable or not
     VkFormat mColorFormat = VK_FORMAT_B8G8R8A8_UNORM; 
     VkFormat mDepthFormat = VK_FORMAT_UNDEFINED; // VK_FORMAT_D16_UNORM_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT, VK_FORMAT_D32_SFLOAT_S8_UINT
+    bool mVSync = false; // vsync enable or not
+    bool mResizable = false;
 };
 
 

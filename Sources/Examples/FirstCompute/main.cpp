@@ -6,6 +6,8 @@
 #include <VulkanHelper.h>
 #include <VulkanImage.h>
 #include <VulkanDescriptor.h>
+#include <VulkanShader.h>
+#include <VulkanPipeline.h>
 
 #include "assert.h"
 
@@ -34,17 +36,26 @@ struct VulkanApp
     // Descriptors
     DescriptorAllocator mGlobalDescriptorAllocator;
 
+    
     VkDescriptorSet mDrawImageDescriptors;
-    VkDescriptorSetLayout mDrawImageDescriptorLayout;
-
+    VkDescriptorSetLayout mDrawImageDescriptorLayout;    
 
     // Resources
     VulkanImage mDrawImage;
 
 
+    VulkanShader mGradientComputeShader; 
+    VkPipelineLayout mGradientPipelineLayout;
+    VkPipeline mGradientPipeline;
+
     // Vulkan per frame data
     std::vector<FrameData> mFrameData;
     uint32_t mCurrentFrame = 0;
+
+    std::string getShaderPath()
+    {
+        return std::string("../Shaders/");
+    }
 
     FrameData& getCurrentFrame()
     {
@@ -132,6 +143,21 @@ struct VulkanApp
         vkUpdateDescriptorSets(mDevice->mLogicalDevice, 1, &lDrawImageWrite, 0, nullptr);
     }
 
+    void initPipelines()
+    {
+        mGradientComputeShader = VulkanShader::loadFromFile(mDevice->mLogicalDevice, getShaderPath() + "gradient.comp.glsl.spv");
+        assert(mGradientComputeShader.isValid());
+
+        // Create a compute pipeline
+        VkPipelineLayoutCreateInfo gradientPipelineLayout = vkh::pipelineLayoutCreateInfo(&mDrawImageDescriptorLayout, 1);        
+        VK_CHECK(vkCreatePipelineLayout(mDevice->mLogicalDevice, &gradientPipelineLayout, nullptr, &mGradientPipelineLayout));
+
+        VkPipelineShaderStageCreateInfo gradientShaderStage = vkh::pipelineShaderStageCreateInfo(mGradientComputeShader.mStage, mGradientComputeShader.mShaderModule);
+        VkComputePipelineCreateInfo gradientPipeline = vkh::computePipelineCreateInfo(mGradientPipelineLayout, gradientShaderStage);
+        VK_CHECK(vkCreateComputePipelines(mDevice->mLogicalDevice, VK_NULL_HANDLE, 1, &gradientPipeline, nullptr, &mGradientPipeline));
+        // TODO : Can destroy the shader module now
+    }
+
     void initResources()
     {
         // draw image size will match the window
@@ -199,6 +225,36 @@ struct VulkanApp
         // Make the swapchain ready for presentation
         vkh::transitionImage(pCmd, mSwapchain->getImage(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
     }
+   
+    // dispatch the compute shader
+    // Copy the mDrawImage.mImage to the swapchain image
+    // Make the swapchain image ready for presentation
+    void draw_background_with_gradient_compute_shader(VkCommandBuffer pCmd)
+    {
+        // Make the swapchain image ready for dst copy 
+        vkh::transitionImage(pCmd, mSwapchain->getImage(), VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+        // VK_IMAGE_LAYOUT_GENERAL to do clearing
+        vkh::transitionImage(pCmd, mDrawImage.mImage, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+
+        // Bind the pipeline
+        vkCmdBindPipeline(pCmd, VK_PIPELINE_BIND_POINT_COMPUTE, mGradientPipeline);
+
+        // Bind the descriptor set
+        vkCmdBindDescriptorSets(pCmd, VK_PIPELINE_BIND_POINT_COMPUTE, mGradientPipelineLayout, 0, 1, &mDrawImageDescriptors, 0, nullptr);
+
+        // Dispatch
+        vkCmdDispatch(pCmd, ceil(mDrawImage.mExtent.width / 16.0), ceil(mDrawImage.mExtent.height / 16.0), 1);
+
+        // Ready fo src transfert
+        vkh::transitionImage(pCmd, mDrawImage.mImage, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+
+        // Copy the mDrawImage.mImage to the swapchain image
+        vkh::copyImageToImage(pCmd, mDrawImage.mImage, mSwapchain->getImage(), { mDrawImage.mExtent.width, mDrawImage.mExtent.height }, { mDrawImage.mExtent.width, mDrawImage.mExtent.height });
+
+        // Make the swapchain ready for presentation
+        vkh::transitionImage(pCmd, mSwapchain->getImage(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+    }
 
     void render()
     {
@@ -218,10 +274,8 @@ struct VulkanApp
         VK_CHECK(vkBeginCommandBuffer(lCommandBuffer, &lCmdBeginInfo));
 
         
-        
-        
-        draw_background_by_clearing_image(lCommandBuffer);
-
+        //draw_background_by_clearing_image(lCommandBuffer);
+        draw_background_with_gradient_compute_shader(lCommandBuffer);
 
 
         //vkh::transitionImage(lCommandBuffer, mSwapchain->getImage(), VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
@@ -252,6 +306,7 @@ struct VulkanApp
         initSwapchain();
         initResources();
         initDescriptors();
+        initPipelines();
 
         while (!mWindow->shouldClose())
         {

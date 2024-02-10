@@ -20,6 +20,11 @@ namespace vkh
 	VkCommandBufferSubmitInfo commandBufferSubmitInfo(VkCommandBuffer cmd);
 	VkSubmitInfo2 submitInfo(VkCommandBufferSubmitInfo* cmd, VkSemaphoreSubmitInfo* signalSemaphoreInfo, VkSemaphoreSubmitInfo* waitSemaphoreInfo);
 
+	// Pipeline helpers
+	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo(const VkDescriptorSetLayout* pSetLayouts, uint32_t pSetLayoutCount);
+	VkPipelineShaderStageCreateInfo pipelineShaderStageCreateInfo(VkShaderStageFlagBits stage, VkShaderModule shaderModule, const char* pEntryName = "main");
+	VkComputePipelineCreateInfo computePipelineCreateInfo(VkPipelineLayout layout, VkPipelineShaderStageCreateInfo shaderStageInfo);
+
 	// Image helpers
 	VkImageSubresourceRange imageSubresourceRange(VkImageAspectFlags aspectMask);
 	VkImageCreateInfo imageCreateInfo(VkFormat format, VkImageUsageFlags usageFlags, VkExtent3D extent);
@@ -39,7 +44,6 @@ namespace vkh
 	std::vector<VkFramebuffer> createSwapchainFramebuffer(VkDevice pDevice, VkRenderPass pRenderPass, const VulkanSwapchain& pSwapchain);	// No more used with Vulkan 1.3
 
 	
-
 	// Barrier helpers
 	// VK_KHR_synchronization2 : https://github.com/KhronosGroup/Vulkan-Docs/wiki/Synchronization-Examples
 	void transitionImage(VkCommandBuffer cmd, VkImage pImage, VkImageLayout oldLayout, VkImageLayout newLayout);

@@ -87,6 +87,44 @@ void transitionImage(VkCommandBuffer cmd, VkImage image, VkImageLayout currentLa
 }
 
 /******************************************************************************/
+VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo(const VkDescriptorSetLayout* pSetLayouts, uint32_t pSetLayoutCount)
+{
+	VkPipelineLayoutCreateInfo lCreateInfo = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
+    //VkPipelineLayoutCreateFlags        flags;
+    lCreateInfo.setLayoutCount = pSetLayoutCount;
+    lCreateInfo.pSetLayouts = pSetLayouts;
+    //lCreateInfo.pushConstantRangeCount = 0;
+    //lCreateInfo.pPushConstantRanges = nullptr;
+    return lCreateInfo;
+}
+
+/******************************************************************************/
+VkPipelineShaderStageCreateInfo pipelineShaderStageCreateInfo(VkShaderStageFlagBits stage, VkShaderModule shaderModule, const char* pEntryName)
+{
+	VkPipelineShaderStageCreateInfo lInfo = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
+//	VkPipelineShaderStageCreateFlags    flags;
+	lInfo.stage = stage;
+	lInfo.module = shaderModule;
+	lInfo.pName = pEntryName;
+	//const VkSpecializationInfo* pSpecializationInfo; // What is it?
+
+	return lInfo;
+}
+
+/******************************************************************************/
+VkComputePipelineCreateInfo computePipelineCreateInfo(VkPipelineLayout layout, VkPipelineShaderStageCreateInfo shaderStageInfo)
+{
+    VkComputePipelineCreateInfo lInfo = { VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO };
+	//VkPipelineCreateFlags              flags;
+	lInfo.stage = shaderStageInfo;
+	lInfo.layout = layout;
+	//VkPipeline                         basePipelineHandle;
+	//int32_t                            basePipelineIndex;
+
+    return lInfo;
+}
+
+/******************************************************************************/
 VkSemaphoreSubmitInfo semaphoreSubmitInfo(VkPipelineStageFlags2 stageMask, VkSemaphore semaphore)
 {
 	VkSemaphoreSubmitInfo submitInfo{};

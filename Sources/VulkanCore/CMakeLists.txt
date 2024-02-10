@@ -5,18 +5,20 @@ set(sources
     Window.h Window.cpp
     vk_common.h
     Shaders.h Shaders.cpp
+    VulkanShader.h VulkanShader.cpp
     VulkanContext.h VulkanContext.cpp
     VulkanDevice.h VulkanDevice.cpp
     VulkanBuffer.h VulkanBuffer.cpp
     VulkanImage.h VulkanImage.cpp
     VulkanHelper.h VulkanHelper.cpp
     VulkanDescriptor.h VulkanDescriptor.cpp
+    VulkanPipeline.h VulkanPipeline.cpp
     VulkanSwapchain.h VulkanSwapchain.cpp)
 
 source_group("Sources" FILES ${sources})
 
-file(GLOB glsl_sources "../Shaders/*.glsl")
-file(GLOB glsl_inc "../Shaders/*.h")
+file(GLOB glsl_sources "${CMAKE_HOME_DIRECTORY}/Shaders/*.glsl")
+file(GLOB glsl_inc "${CMAKE_HOME_DIRECTORY}/Shaders/*.h")
 source_group(Shaders FILES ${glsl_sources} ${glsl_inc})
 
 #add_executable(${PROJECT_NAME} ${sources} ${glsl_sources})
@@ -47,6 +49,8 @@ if(WIN32)
 endif()
 
 foreach(fileItem ${glsl_sources})
+    get_filename_component(FILE_NAME ${fileItem} NAME)
+    message(STATUS "Compile shader ${FILE_NAME} ...")
     add_custom_command( OUTPUT ${fileItem}.spv
                         POST_BUILD                        
                         COMMAND glslangValidator.exe -V "${fileItem}" -o "${fileItem}.spv"
