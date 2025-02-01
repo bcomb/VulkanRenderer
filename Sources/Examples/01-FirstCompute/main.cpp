@@ -429,14 +429,15 @@ struct VulkanApp
 
     void UI_PushConstantWidget()
     {
-        if (ImGui::Begin("background")) {
+        if (ImGui::Begin("background"))
+        {
             ImGui::Text("PushConstant data");
             ImGui::ColorEdit4("data0", (float*)&mPushConstants.data0);
             ImGui::ColorEdit4("data1", (float*)&mPushConstants.data0);
             ImGui::ColorEdit4("data2", (float*)&mPushConstants.data0);
-            ImGui::ColorEdit4("data3", (float*)&mPushConstants.data0);
-            ImGui::End();
+            ImGui::ColorEdit4("data3", (float*)&mPushConstants.data0);            
         }
+        ImGui::End();
     }
 
     int run()

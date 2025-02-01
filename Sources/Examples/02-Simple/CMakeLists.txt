@@ -1,4 +1,4 @@
-project(Simple)
+project(02-Simple)
 
 # Add source to this project's executable.
 add_executable(${PROJECT_NAME}  main.cpp)

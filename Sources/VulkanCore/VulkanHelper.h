@@ -5,6 +5,7 @@
 // Forward declaration
 struct VulkanSwapchain;
 
+
 // Helper functions
 namespace vkh
 {
@@ -49,6 +50,7 @@ namespace vkh
 
 	
 	// Barrier helpers
+	// https://www.khronos.org/blog/vulkan-sdk-offers-developers-a-smooth-transition-path-to-synchronization2
 	// VK_KHR_synchronization2 : https://github.com/KhronosGroup/Vulkan-Docs/wiki/Synchronization-Examples
 	void transitionImage(VkCommandBuffer cmd, VkImage pImage, VkImageLayout oldLayout, VkImageLayout newLayout);
     //VkBufferMemoryBarrier bufferBarrier(VkBuffer pBuffer, VkAccessFlags pSrcAccessMask, VkAccessFlags pDstAccessMask);
